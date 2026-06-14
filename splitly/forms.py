@@ -1,6 +1,6 @@
 from django import forms
 
-from splitly.models import User, Group, Expense, Settlement, ExchangeRate, CSVImport, SUPPORTED_CURRENCIES
+from splitly.models import User, Group, Expense, Settlement, Currency, CSVImport, SUPPORTED_CURRENCIES
 
 class CustomUserCreationForm(forms.ModelForm):
     full_name = forms.CharField(max_length=150, required=True, label="Full Name",
@@ -177,7 +177,7 @@ class SettlementForm(forms.ModelForm):
         return cleaned
 
 
-class ExchangeRateForm(forms.ModelForm):
+class CurrencyForm(forms.ModelForm):
     """Admin-accessible form to update a currency's exchange rate."""
     rate_to_inr = forms.DecimalField(
         max_digits=12, decimal_places=6,
@@ -187,5 +187,5 @@ class ExchangeRateForm(forms.ModelForm):
     )
 
     class Meta:
-        model = ExchangeRate
+        model = Currency
         fields = ('rate_to_inr',)
