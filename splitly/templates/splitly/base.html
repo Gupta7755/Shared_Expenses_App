@@ -1,0 +1,120 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Splitly - Shared Expense Management{% endblock %}</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Custom Style -->
+    <link href="{% static 'css/style.css' %}" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <a href="{% url 'splitly:dashboard' %}" class="sidebar-logo">
+                <div class="logo-icon">
+                    <i class="bi bi-wallet2"></i>
+                </div>
+                <span>Splitly</span>
+            </a>
+            
+            <ul class="sidebar-menu">
+                <li>
+                    <a href="{% url 'splitly:dashboard' %}" class="menu-item-link {% if current_page == 'dashboard' %}active{% endif %}">
+                        <i class="bi bi-grid-fill"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'splitly:group_list' %}" class="menu-item-link {% if current_page == 'groups' %}active{% endif %}">
+                        <i class="bi bi-people-fill"></i>
+                        <span>Groups</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'splitly:expense_list' %}" class="menu-item-link {% if current_page == 'expenses' %}active{% endif %}">
+                        <i class="bi bi-receipt"></i>
+                        <span>Expenses</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'splitly:balances' %}" class="menu-item-link {% if current_page == 'balances' %}active{% endif %}">
+                        <i class="bi bi-scales"></i>
+                        <span>Balances</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'splitly:profile' %}" class="menu-item-link {% if current_page == 'profile' %}active{% endif %}">
+                        <i class="bi bi-person-fill"></i>
+                        <span>Profile</span>
+                    </a>
+                </li>
+            </ul>
+            
+            <!-- Sidebar Footer User Profile -->
+            <div class="sidebar-footer">
+                <div class="footer-user">
+                    <div class="avatar-circle">
+                        {% if user.profile_picture %}
+                            <img src="{{ user.profile_picture.url }}" alt="Profile" class="avatar-image">
+                        {% else %}
+                            {{ user.first_name|default:user.email|slice:":1"|upper }}
+                        {% endif %}
+                    </div>
+                    <div class="user-info">
+                        <span class="user-name">{{ user.first_name|default:user.username }}</span>
+                        <span class="user-email">{{ user.email }}</span>
+                    </div>
+                </div>
+                <a href="{% url 'splitly:logout' %}" class="logout-icon-btn" title="Logout">
+                    <i class="bi bi-box-arrow-right"></i>
+                </a>
+            </div>
+        </aside>
+
+        <!-- Sidebar Toggle for Mobile -->
+        <button class="sidebar-toggle d-lg-none" id="sidebarToggle" aria-label="Toggle Sidebar">
+            <i class="bi bi-list"></i>
+        </button>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Alert Messages -->
+            {% if messages %}
+                <div class="messages-container mb-4">
+                    {% for message in messages %}
+                        <div class="alert alert-{% if message.tags == 'error' %}danger{% elif message.tags == 'success' %}success{% else %}info{% endif %} alert-dismissible fade show shadow-sm" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <!-- Bootstrap Bundle JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Script to toggle sidebar on mobile -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebar = document.getElementById('sidebar');
+            const toggle = document.getElementById('sidebarToggle');
+            if (toggle && sidebar) {
+                toggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('show');
+                });
+            }
+        });
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

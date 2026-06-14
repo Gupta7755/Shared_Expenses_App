@@ -1,0 +1,131 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}{{ expense.title }} - Expense Details{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-arrow-left"></i> Back to group
+    </a>
+</div>
+
+<div class="row g-4">
+    <!-- Left Column: Details -->
+    <div class="col-lg-7">
+        <div class="custom-card shadow-sm h-100">
+            <div class="d-flex justify-content-between align-items-start border-bottom pb-3 mb-4">
+                <div>
+                    <span class="badge bg-light text-primary text-uppercase font-monospace mb-2">{{ expense.category }}</span>
+                    <h1 class="h2 fw-bold text-dark m-0">{{ expense.title }}</h1>
+                    <p class="text-muted m-0 mt-1"><i class="bi bi-calendar3 me-1"></i> Recorded on {{ expense.date }}</p>
+                </div>
+                
+                <div class="text-end">
+                    <span class="fs-2 fw-bold text-dark">${{ expense.amount|floatformat:2 }}</span>
+                    <span class="text-muted d-block small">{{ expense.currency }}</span>
+                </div>
+            </div>
+
+            <div class="mb-4">
+                <h4 class="h6 fw-bold text-dark mb-2">Paid By</h4>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="avatar-circle" style="width: 32px; height: 32px; font-size: 13px;">
+                        {% if expense.paid_by.profile_picture %}
+                            <img src="{{ expense.paid_by.profile_picture.url }}" alt="Profile" class="avatar-image">
+                        {% else %}
+                            {{ expense.paid_by.first_name|default:expense.paid_by.email|slice:":1"|upper }}
+                        {% endif %}
+                    </div>
+                    <div>
+                        <span class="fw-semibold text-dark">{{ expense.paid_by.get_full_name|default:expense.paid_by.username }}</span>
+                        <span class="text-muted small">({{ expense.paid_by.email }})</span>
+                    </div>
+                </div>
+            </div>
+
+            {% if expense.location %}
+                <div class="mb-4">
+                    <h4 class="h6 fw-bold text-dark mb-2">Location</h4>
+                    <p class="text-muted m-0"><i class="bi bi-geo-alt me-1"></i> {{ expense.location }}</p>
+                </div>
+            {% endif %}
+
+            <div class="mb-4">
+                <h4 class="h6 fw-bold text-dark mb-2">Description / Note</h4>
+                <p class="text-muted m-0" style="white-space: pre-line;">{{ expense.description|default:"No description provided." }}</p>
+            </div>
+            
+            <hr class="my-4">
+            
+            <div class="d-flex gap-2">
+                <a href="{% url 'splitly:expense_update' expense.id %}" class="btn btn-outline-primary" style="border-radius: 8px;">
+                    <i class="bi bi-pencil me-1"></i> Edit Expense
+                </a>
+                <a href="{% url 'splitly:expense_delete' expense.id %}" class="btn btn-outline-danger" style="border-radius: 8px;" onclick="return confirm('Delete this expense?');">
+                    <i class="bi bi-trash me-1"></i> Delete
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Right Column: Split Breakdown & Receipt -->
+    <div class="col-lg-5">
+        <!-- Splits List -->
+        <div class="custom-card mb-4 shadow-sm">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-pie-chart"></i> Split Breakdown
+            </h3>
+            
+            <div class="d-flex flex-column gap-2">
+                {% for split in splits %}
+                    <div class="d-flex align-items-center justify-content-between p-3 border rounded bg-light">
+                        <div class="d-flex align-items-center gap-2">
+                            <div class="avatar-circle" style="width: 32px; height: 32px; font-size: 13px;">
+                                {% if split.user.profile_picture %}
+                                    <img src="{{ split.user.profile_picture.url }}" alt="Profile" class="avatar-image">
+                                {% else %}
+                                    {{ split.user.first_name|default:split.user.email|slice:":1"|upper }}
+                                {% endif %}
+                            </div>
+                            <div>
+                                <span class="fw-semibold text-dark d-block" style="font-size: 13px;">
+                                    {{ split.user.get_full_name|default:split.user.username }}
+                                </span>
+                                <span class="text-muted small" style="font-size: 11px;">{{ split.user.email }}</span>
+                            </div>
+                        </div>
+                        <div class="text-end">
+                            <span class="fw-bold font-monospace text-danger" style="font-size: 14px;">
+                                -${{ split.amount|floatformat:2 }}
+                            </span>
+                            {% if expense.split_type != 'equal' %}
+                                <div class="text-muted small" style="font-size: 10px;">
+                                    {% if expense.split_type == 'percentage' %}
+                                        {{ split.input_value|floatformat:1 }}% share
+                                    {% elif expense.split_type == 'share' %}
+                                        {{ split.input_value|floatformat:1 }} share(s)
+                                    {% else %}
+                                        Custom split
+                                    {% endif %}
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Receipt Card -->
+        {% if expense.receipt %}
+            <div class="custom-card shadow-sm">
+                <h3 class="card-title-custom mb-3">
+                    <i class="bi bi-file-earmark-image"></i> Receipt Upload
+                </h3>
+                <div class="text-center rounded border overflow-hidden p-2 bg-light">
+                    <img src="{{ expense.receipt.url }}" alt="Receipt for {{ expense.title }}" class="img-fluid rounded" style="max-height: 350px;">
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

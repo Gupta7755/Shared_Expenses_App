@@ -1,0 +1,44 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}{{ title }} - Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% if group %}{% url 'splitly:group_detail' group.id %}{% else %}{% url 'splitly:group_list' %}{% endif %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-arrow-left"></i> Back
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-lg-8 col-xl-6">
+        <div class="custom-card shadow-sm">
+            <h1 class="h3 fw-bold text-dark mb-4">{{ title }}</h1>
+            
+            <form method="POST">
+                {% csrf_token %}
+                
+                <div class="mb-3">
+                    <label class="form-label" for="id_name">Group Name</label>
+                    {{ form.name }}
+                    {% if form.name.errors %}
+                        <div class="text-danger small mt-1">{{ form.name.errors.0 }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="mb-4">
+                    <label class="form-label" for="id_description">Description (Optional)</label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="text-danger small mt-1">{{ form.description.errors.0 }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="d-flex gap-3">
+                    <button type="submit" class="btn btn-primary-custom px-4" style="border-radius: 8px;">Save group</button>
+                    <a href="{% if group %}{% url 'splitly:group_detail' group.id %}{% else %}{% url 'splitly:group_list' %}{% endif %}" class="btn btn-secondary-custom px-4" style="border-radius: 8px;">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Profile Settings - Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <h1 class="h2 fw-bold text-dark m-0">Profile Settings</h1>
+    <p class="text-muted m-0">Manage your profile details and preferences.</p>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="custom-card shadow-sm">
+            <div class="d-flex align-items-center gap-3 mb-4 border-bottom pb-4">
+                <div class="avatar-circle" style="width: 64px; height: 64px; font-size: 24px;">
+                    {% if user.profile_picture %}
+                        <img src="{{ user.profile_picture.url }}" alt="Profile" class="avatar-image">
+                    {% else %}
+                        {{ user.first_name|default:user.email|slice:":1"|upper }}
+                    {% endif %}
+                </div>
+                <div>
+                    <h2 class="h4 fw-bold text-dark m-0">{{ user.get_full_name|default:user.username }}</h2>
+                    <p class="text-muted m-0 small">{{ user.email }}</p>
+                </div>
+            </div>
+
+            <form method="POST" enctype="multipart/form-data">
+                {% csrf_token %}
+                
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Full Name</label>
+                        {{ form.full_name }}
+                        {% if form.full_name.errors %}
+                            <div class="text-danger small mt-1">{{ form.full_name.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Email Address</label>
+                        {{ form.email }}
+                        {% if form.email.errors %}
+                            <div class="text-danger small mt-1">{{ form.email.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Phone Number</label>
+                        {{ form.phone_number }}
+                        {% if form.phone_number.errors %}
+                            <div class="text-danger small mt-1">{{ form.phone_number.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Preferred Currency</label>
+                        {{ form.preferred_currency }}
+                        {% if form.preferred_currency.errors %}
+                            <div class="text-danger small mt-1">{{ form.preferred_currency.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">Change Profile Picture</label>
+                    {{ form.profile_picture }}
+                    {% if form.profile_picture.errors %}
+                        <div class="text-danger small mt-1">{{ form.profile_picture.errors.0 }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="d-flex gap-3 pt-2">
+                    <button type="submit" class="btn btn-primary-custom px-4" style="border-radius: 8px;">Save changes</button>
+                    <a href="{% url 'splitly:dashboard' %}" class="btn btn-secondary-custom px-4" style="border-radius: 8px;">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

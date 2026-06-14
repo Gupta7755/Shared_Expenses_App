@@ -1,0 +1,88 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Groups - Splitly{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="h2 fw-bold text-dark m-0">Groups</h1>
+        <p class="text-muted m-0">Manage and track your shared groups.</p>
+    </div>
+    <a href="{% url 'splitly:group_create' %}" class="btn btn-primary-custom">
+        <i class="bi bi-plus-lg"></i> Create group
+    </a>
+</div>
+
+<div class="custom-card mb-4">
+    <h2 class="card-title-custom mb-3">
+        <i class="bi bi-folder-check"></i> Active Groups
+    </h2>
+    
+    <div class="row g-4 mt-1">
+        {% if groups %}
+            {% for group in groups %}
+                <div class="col-md-6 col-lg-4">
+                    <div class="card h-100 border shadow-sm" style="border-radius: 14px; overflow: hidden; transition: transform 0.2s;">
+                        <div class="card-body p-4 d-flex flex-column">
+                            <div class="d-flex align-items-center gap-3 mb-3">
+                                <div class="item-icon m-0" style="width: 44px; height: 44px; background-color: var(--primary-light); color: var(--primary-color);">
+                                    {% if 'trip' in group.name|lower %}
+                                        <i class="bi bi-compass"></i>
+                                    {% elif 'apartment' in group.name|lower or 'flat' in group.name|lower or 'home' in group.name|lower %}
+                                        <i class="bi bi-house"></i>
+                                    {% else %}
+                                        <i class="bi bi-folder"></i>
+                                    {% endif %}
+                                </div>
+                                <h5 class="fw-bold text-dark m-0">{{ group.name }}</h5>
+                            </div>
+                            
+                            <p class="text-muted card-text small flex-grow-1">
+                                {{ group.description|default:"No description provided."|truncatechars:80 }}
+                            </p>
+                            
+                            <hr class="my-3 text-muted">
+                            
+                            <div class="d-flex justify-content-between align-items-center mt-auto">
+                                <span class="text-muted small">Created by {{ group.created_by.first_name|default:group.created_by.username }}</span>
+                                <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-outline-primary fw-semibold px-3" style="border-radius: 6px;">View details</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="col-12 py-5 text-center">
+                <i class="bi bi-people text-muted" style="font-size: 44px;"></i>
+                <h5 class="fw-bold text-dark mt-3">No active groups</h5>
+                <p class="text-muted mb-4">You are not part of any active groups yet.</p>
+                <a href="{% url 'splitly:group_create' %}" class="btn btn-primary-custom btn-sm">Create group now</a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if archived_groups %}
+<div class="custom-card border-warning bg-light">
+    <h2 class="card-title-custom mb-3 text-warning">
+        <i class="bi bi-archive"></i> Archived Groups
+    </h2>
+    <div class="row g-4 mt-1">
+        {% for group in archived_groups %}
+            <div class="col-md-6 col-lg-4">
+                <div class="card h-100 border bg-white shadow-sm" style="border-radius: 14px; overflow: hidden; opacity: 0.8;">
+                    <div class="card-body p-4 d-flex flex-column">
+                        <h5 class="fw-bold text-muted mb-2">{{ group.name }}</h5>
+                        <p class="text-muted card-text small flex-grow-1">{{ group.description|default:""|truncatechars:80 }}</p>
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="badge bg-secondary">Archived</span>
+                            <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-outline-secondary px-3" style="border-radius: 6px;">View details</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

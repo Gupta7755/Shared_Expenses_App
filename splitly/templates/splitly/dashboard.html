@@ -1,0 +1,200 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Dashboard - Splitly{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+        <h1 class="h2 fw-bold text-dark m-0">Dashboard</h1>
+        <p class="text-muted m-0">Here's how your shared expenses look.</p>
+    </div>
+    <div>
+        {% if group_balances %}
+            <button class="btn btn-primary-custom" data-bs-toggle="modal" data-bs-target="#selectGroupModal">
+                <i class="bi bi-plus"></i> Add expense
+            </button>
+        {% else %}
+            <a href="{% url 'splitly:group_create' %}" class="btn btn-primary-custom">
+                <i class="bi bi-plus"></i> Create a group first
+            </a>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Stats Section -->
+<div class="row g-4 mb-4">
+    <div class="col-md-4">
+        <div class="stat-card">
+            <span class="stat-label">Net balance</span>
+            <p class="stat-value {% if net_balance > 0 %}positive{% else %}negative{% endif %}">
+                {% if net_balance > 0 %}+{% endif %}${{ net_balance|floatformat:2 }}
+            </p>
+            <div class="stat-icon net">
+                <i class="bi bi-wallet2"></i>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="stat-card">
+            <span class="stat-label">You are owed</span>
+            <p class="stat-value positive">${{{ total_is_owed|floatformat:2 }}</p>
+            <div class="stat-icon owed">
+                <i class="bi bi-arrow-down-left"></i>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-4">
+        <div class="stat-card">
+            <span class="stat-label">You owe</span>
+            <p class="stat-value text-dark">${{ total_owe|floatformat:2 }}</p>
+            <div class="stat-icon owe">
+                <i class="bi bi-arrow-up-right"></i>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Main Panels -->
+<div class="row g-4">
+    <!-- Groups Column -->
+    <div class="col-lg-6">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-people"></i> Your groups
+                </h2>
+                <a href="{% url 'splitly:group_list' %}" class="view-all-link">View all</a>
+            </div>
+            
+            <div class="groups-list">
+                {% if group_balances %}
+                    {% for item in group_balances %}
+                        <div class="item-row">
+                            <div class="item-left">
+                                <div class="item-icon">
+                                    {% if 'trip' in item.group.name|lower %}
+                                        <i class="bi bi-compass"></i>
+                                    {% elif 'apartment' in item.group.name|lower or 'flat' in item.group.name|lower or 'home' in item.group.name|lower %}
+                                        <i class="bi bi-house"></i>
+                                    {% else %}
+                                        <i class="bi bi-folder"></i>
+                                    {% endif %}
+                                </div>
+                                <div>
+                                    <a href="{% url 'splitly:group_detail' item.group.id %}" class="item-title text-decoration-none text-dark hover-primary">{{ item.group.name }}</a>
+                                    <div class="item-subtitle">{{ item.members_count }} member(s)</div>
+                                </div>
+                            </div>
+                            <div class="item-right">
+                                <span class="amount-text {% if item.balance > 0 %}positive{% elif item.balance < 0 %}negative{% endif %}">
+                                    {% if item.balance > 0 %}
+                                        +${{ item.balance|floatformat:2 }}
+                                    {% elif item.balance < 0 %}
+                                        -${{ item.balance|abs|floatformat:2 }}
+                                    {% else %}
+                                        $0.00
+                                    {% endif %}
+                                </span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-people text-muted" style="font-size: 32px;"></i>
+                        <p class="text-muted mt-2 mb-0" style="font-size: 14px;">You aren't in any groups yet.</p>
+                        <a href="{% url 'splitly:group_create' %}" class="btn btn-sm btn-outline-primary mt-3">Create Group</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Recent Activity Column -->
+    <div class="col-lg-6">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-receipt"></i> Recent activity
+                </h2>
+                <a href="{% url 'splitly:expense_list' %}" class="view-all-link">View all</a>
+            </div>
+            
+            <div class="activity-list">
+                {% if recent_activity %}
+                    {% for exp in recent_activity %}
+                        <div class="item-row">
+                            <div class="item-left">
+                                <div class="category-icon cat-{{ exp.category }}">
+                                    {% if exp.category == 'Rent' %}<i class="bi bi-house-door"></i>
+                                    {% elif exp.category == 'Food' %}<i class="bi bi-egg-fried"></i>
+                                    {% elif exp.category == 'Travel' %}<i class="bi bi-airplane"></i>
+                                    {% elif exp.category == 'Shopping' %}<i class="bi bi-bag"></i>
+                                    {% elif exp.category == 'Electricity' %}<i class="bi bi-lightning"></i>
+                                    {% elif exp.category == 'Entertainment' %}<i class="bi bi-controller"></i>
+                                    {% elif exp.category == 'Salary' %}<i class="bi bi-cash-stack"></i>
+                                    {% elif exp.category == 'Maintenance' %}<i class="bi bi-tools"></i>
+                                    {% elif exp.category == 'Medical' %}<i class="bi bi-heart-pulse"></i>
+                                    {% else %}<i class="bi bi-receipt"></i>{% endif %}
+                                </div>
+                                <div>
+                                    <a href="{% url 'splitly:expense_detail' exp.id %}" class="item-title text-decoration-none text-dark hover-primary">{{ exp.title }}</a>
+                                    <div class="item-subtitle">
+                                        {% if exp.paid_by == user %}
+                                            You paid
+                                        {% else %}
+                                            {{ exp.paid_by.first_name|default:exp.paid_by.username }} paid
+                                        {% endif %}
+                                        &bull; {{ exp.cycle.group.name }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="item-right">
+                                <span class="amount-text text-dark">${{ exp.amount|floatformat:2 }}</span>
+                                <div class="text-muted" style="font-size: 11px;">{{ exp.date }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-receipt text-muted" style="font-size: 32px;"></i>
+                        <p class="text-muted mt-2 mb-0" style="font-size: 14px;">No recent expenses recorded.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal to select group for new expense -->
+{% if group_balances %}
+<div class="modal fade" id="selectGroupModal" tabindex="-1" aria-labelledby="selectGroupModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold" id="selectGroupModalLabel">Add Expense</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-4">
+                <p class="text-muted mb-3" style="font-size: 14px;">Select the group you want to record the expense for:</p>
+                <div class="d-flex flex-column gap-2">
+                    {% for item in group_balances %}
+                        <a href="{% url 'splitly:expense_create' item.group.id %}" class="btn btn-light border text-start p-3 d-flex align-items-center justify-content-between" style="border-radius: 10px; transition: all 0.2s;">
+                            <span class="fw-semibold text-dark">{{ item.group.name }}</span>
+                            <i class="bi bi-chevron-right text-muted"></i>
+                        </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<style>
+.hover-primary:hover {
+    color: var(--primary-color) !important;
+}
+</style>
+{% endblock %}

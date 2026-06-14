@@ -1,0 +1,285 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}{{ title }} - Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-arrow-left"></i> Back to group
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-lg-8">
+        <div class="custom-card shadow-sm">
+            <h1 class="h3 fw-bold text-dark mb-4">{{ title }} &bull; {{ group.name }}</h1>
+            
+            <form method="POST" enctype="multipart/form-data" id="expense-form">
+                {% csrf_token %}
+                
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Expense Title</label>
+                        {{ form.title }}
+                        {% if form.title.errors %}
+                            <div class="text-danger small mt-1">{{ form.title.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Category</label>
+                        {{ form.category }}
+                        {% if form.category.errors %}
+                            <div class="text-danger small mt-1">{{ form.category.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Amount</label>
+                        {{ form.amount }}
+                        {% if form.amount.errors %}
+                            <div class="text-danger small mt-1">{{ form.amount.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Currency</label>
+                        {{ form.currency }}
+                        {% if form.currency.errors %}
+                            <div class="text-danger small mt-1">{{ form.currency.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Date</label>
+                        {{ form.date }}
+                        {% if form.date.errors %}
+                            <div class="text-danger small mt-1">{{ form.date.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">Paid By</label>
+                        {{ form.paid_by }}
+                        {% if form.paid_by.errors %}
+                            <div class="text-danger small mt-1">{{ form.paid_by.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Split Type</label>
+                        {{ form.split_type }}
+                        {% if form.split_type.errors %}
+                            <div class="text-danger small mt-1">{{ form.split_type.errors.0 }}</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Dynamic Split Values Inputs -->
+                <div class="mb-4 d-none" id="split-inputs-wrapper">
+                    <div class="p-3 border rounded bg-light">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h5 class="h6 fw-bold text-dark m-0" id="split-values-header">Split Shares</h5>
+                            <span class="text-muted small" id="split-helper-text">Specify details for each participant</span>
+                        </div>
+                        
+                        <div class="d-flex flex-column gap-2">
+                            {% for member in members %}
+                                <div class="row align-items-center">
+                                    <div class="col-6">
+                                        <span class="fw-semibold text-dark" style="font-size: 14px;">
+                                            {{ member.get_full_name|default:member.username }}
+                                        </span>
+                                        <span class="text-muted small d-block" style="font-size: 11px;">{{ member.email }}</span>
+                                    </div>
+                                    <div class="col-6">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text split-unit-symbol">$</span>
+                                            <input type="number" 
+                                                   step="any" 
+                                                   name="split_val_{{ member.id }}" 
+                                                   id="split_val_{{ member.id }}" 
+                                                   class="form-control split-member-input" 
+                                                   value="0">
+                                        </div>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="text-end mt-3 small text-muted d-none" id="split-total-status">
+                            Total split: <span id="current-split-total">0</span> / <span id="expected-split-total">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Location (Optional)</label>
+                    {{ form.location }}
+                    {% if form.location.errors %}
+                        <div class="text-danger small mt-1">{{ form.location.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Description (Optional)</label>
+                    {{ form.description }}
+                    {% if form.description.errors %}
+                        <div class="text-danger small mt-1">{{ form.description.errors.0 }}</div>
+                    {% endif %}
+                </div>
+
+                <div class="mb-4">
+                    <label class="form-label">Receipt Image (Optional)</label>
+                    {{ form.receipt }}
+                    {% if form.receipt.errors %}
+                        <div class="text-danger small mt-1">{{ form.receipt.errors.0 }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="d-flex gap-3">
+                    <button type="submit" class="btn btn-primary-custom px-4" style="border-radius: 8px;">Save expense</button>
+                    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-secondary-custom px-4" style="border-radius: 8px;">Cancel</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Existing splits JSON for pre-population in edit mode -->
+<script id="existing-splits-data" type="application/json">
+{
+    {% if existing_splits %}
+        {% for u_id, val in existing_splits.items %}
+            "{{ u_id }}": {{ val|stringformat:".2f" }}{% if not forloop.last %},{% endif %}
+        {% endfor %}
+    {% endif %}
+}
+</script>
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const splitTypeSelect = document.getElementById('id_split_type');
+    const splitWrapper = document.getElementById('split-inputs-wrapper');
+    const unitSymbols = document.querySelectorAll('.split-unit-symbol');
+    const memberInputs = document.querySelectorAll('.split-member-input');
+    const splitHelperText = document.getElementById('split-helper-text');
+    const splitTotalStatus = document.getElementById('split-total-status');
+    const currentSplitTotal = document.getElementById('current-split-total');
+    const expectedSplitTotal = document.getElementById('expected-split-total');
+    const amountInput = document.getElementById('id_amount');
+    
+    // Load existing splits
+    let existingSplits = {};
+    try {
+        const jsonText = document.getElementById('existing-splits-data').textContent;
+        if (jsonText.trim()) {
+            existingSplits = JSON.parse(jsonText);
+        }
+    } catch(e) {
+        console.error("Error parsing existing splits", e);
+    }
+    
+    function updateSplitInputs() {
+        const val = splitTypeSelect.value;
+        const count = memberInputs.length;
+        
+        if (val === 'equal') {
+            splitWrapper.classList.add('d-none');
+            splitTotalStatus.classList.add('d-none');
+            memberInputs.forEach(input => {
+                input.value = "0";
+            });
+        } else {
+            splitWrapper.classList.remove('d-none');
+            
+            if (val === 'unequal') {
+                unitSymbols.forEach(sym => sym.textContent = '$');
+                splitHelperText.textContent = "Specify exact amount owed by each participant (must sum to total expense amount).";
+                splitTotalStatus.classList.remove('d-none');
+                
+                memberInputs.forEach(input => {
+                    const mId = input.id.split('_').pop();
+                    if (existingSplits[mId] !== undefined) {
+                        input.value = existingSplits[mId];
+                    } else if (input.value === "0" || !input.value) {
+                        input.value = "0.00";
+                    }
+                });
+            } else if (val === 'percentage') {
+                unitSymbols.forEach(sym => sym.textContent = '%');
+                splitHelperText.textContent = "Specify percentage owed by each participant (must sum to 100%).";
+                splitTotalStatus.classList.remove('d-none');
+                
+                memberInputs.forEach(input => {
+                    const mId = input.id.split('_').pop();
+                    if (existingSplits[mId] !== undefined) {
+                        input.value = existingSplits[mId];
+                    } else if (input.value === "0.00" || input.value === "0" || !input.value) {
+                        input.value = (100 / count).toFixed(2);
+                    }
+                });
+            } else if (val === 'share') {
+                unitSymbols.forEach(sym => sym.textContent = 'sh');
+                splitHelperText.textContent = "Specify shares count for each participant (proportional split).";
+                splitTotalStatus.classList.add('d-none');
+                
+                memberInputs.forEach(input => {
+                    const mId = input.id.split('_').pop();
+                    if (existingSplits[mId] !== undefined) {
+                        input.value = existingSplits[mId];
+                    } else if (input.value === "0.00" || input.value === "0" || !input.value) {
+                        input.value = "1";
+                    }
+                });
+            }
+        }
+        validateSums();
+    }
+    
+    function validateSums() {
+        const val = splitTypeSelect.value;
+        const totalAmt = parseFloat(amountInput.value) || 0;
+        
+        let sum = 0;
+        memberInputs.forEach(input => {
+            sum += parseFloat(input.value) || 0;
+        });
+        
+        currentSplitTotal.textContent = sum.toFixed(2);
+        
+        if (val === 'unequal') {
+            expectedSplitTotal.textContent = totalAmt.toFixed(2);
+            if (Math.abs(sum - totalAmt) > 0.01) {
+                splitTotalStatus.classList.remove('text-success');
+                splitTotalStatus.classList.add('text-danger');
+            } else {
+                splitTotalStatus.classList.remove('text-danger');
+                splitTotalStatus.classList.add('text-success');
+            }
+        } else if (val === 'percentage') {
+            expectedSplitTotal.textContent = "100.00%";
+            currentSplitTotal.textContent = sum.toFixed(2) + "%";
+            if (Math.abs(sum - 100) > 0.01) {
+                splitTotalStatus.classList.remove('text-success');
+                splitTotalStatus.classList.add('text-danger');
+            } else {
+                splitTotalStatus.classList.remove('text-danger');
+                splitTotalStatus.classList.add('text-success');
+            }
+        }
+    }
+    
+    splitTypeSelect.addEventListener('change', updateSplitInputs);
+    amountInput.addEventListener('input', validateSums);
+    memberInputs.forEach(input => {
+        input.addEventListener('input', validateSums);
+    });
+    
+    // Initialize
+    updateSplitInputs();
+});
+</script>
+{% endblock %}
+{% endblock %}

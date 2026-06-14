@@ -1,0 +1,98 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Expenses - Splitly{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+        <h1 class="h2 fw-bold text-dark m-0">Expenses</h1>
+        <p class="text-muted m-0">Track and filter all your shared transactions.</p>
+    </div>
+</div>
+
+<!-- Search & Filter Card -->
+<div class="custom-card mb-4 shadow-sm">
+    <form method="GET" action="{% url 'splitly:expense_list' %}" class="row g-3 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label text-dark fw-semibold">Search Title</label>
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0"><i class="bi bi-search text-muted"></i></span>
+                <input type="text" name="q" class="form-control border-start-0" placeholder="e.g. Dinner, Rent" value="{{ q }}">
+            </div>
+        </div>
+        
+        <div class="col-md-3">
+            <label class="form-label text-dark fw-semibold">Filter by Group</label>
+            <select name="group" class="form-select">
+                <option value="">All Groups</option>
+                {% for group in groups %}
+                    <option value="{{ group.id }}" {% if selected_group == group.id|stringformat:"i" %}selected{% endif %}>{{ group.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="col-md-3">
+            <label class="form-label text-dark fw-semibold">Filter by Category</label>
+            <select name="category" class="form-select text-capitalize">
+                <option value="">All Categories</option>
+                {% for category in categories %}
+                    <option value="{{ category }}" {% if selected_category == category %}selected{% endif %}>{{ category }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary-custom w-100 justify-content-center py-2" style="border-radius: 8px;">Filter</button>
+            <a href="{% url 'splitly:expense_list' %}" class="btn btn-secondary-custom w-100 justify-content-center py-2" style="border-radius: 8px;" title="Reset filters">Reset</a>
+        </div>
+    </form>
+</div>
+
+<!-- Expenses Feed -->
+<div class="custom-card shadow-sm">
+    <div class="expenses-feed">
+        {% if expenses %}
+            {% for exp in expenses %}
+                <div class="item-row">
+                    <div class="item-left">
+                        <div class="category-icon cat-{{ exp.category }}">
+                            {% if exp.category == 'Rent' %}<i class="bi bi-house-door"></i>
+                            {% elif exp.category == 'Food' %}<i class="bi bi-egg-fried"></i>
+                            {% elif exp.category == 'Travel' %}<i class="bi bi-airplane"></i>
+                            {% elif exp.category == 'Shopping' %}<i class="bi bi-bag"></i>
+                            {% elif exp.category == 'Electricity' %}<i class="bi bi-lightning"></i>
+                            {% elif exp.category == 'Entertainment' %}<i class="bi bi-controller"></i>
+                            {% elif exp.category == 'Salary' %}<i class="bi bi-cash-stack"></i>
+                            {% elif exp.category == 'Maintenance' %}<i class="bi bi-tools"></i>
+                            {% elif exp.category == 'Medical' %}<i class="bi bi-heart-pulse"></i>
+                            {% else %}<i class="bi bi-receipt"></i>{% endif %}
+                        </div>
+                        <div>
+                            <a href="{% url 'splitly:expense_detail' exp.id %}" class="item-title text-decoration-none text-dark hover-primary">{{ exp.title }}</a>
+                            <div class="item-subtitle">
+                                Paid by <strong>{{ exp.paid_by.first_name|default:exp.paid_by.username }}</strong> &bull; Group: <strong>{{ exp.cycle.group.name }}</strong> &bull; {{ exp.date }}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="item-right">
+                        <span class="amount-text text-dark">${{ exp.amount|floatformat:2 }}</span>
+                        <div class="text-muted small" style="font-size: 11px;">{{ exp.currency }}</div>
+                    </div>
+                </div>
+            {% endfor %}
+        {% else %}
+            <div class="text-center py-5">
+                <i class="bi bi-receipt text-muted" style="font-size: 36px;"></i>
+                <p class="text-muted mt-2 mb-0" style="font-size: 14px;">No matching expenses found.</p>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<style>
+.hover-primary:hover {
+    color: var(--primary-color) !important;
+}
+</style>
+{% endblock %}

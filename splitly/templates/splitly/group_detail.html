@@ -1,0 +1,327 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}{{ group.name }} - Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'splitly:group_list' %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-chevron-left"></i> Back to groups
+    </a>
+</div>
+
+<!-- Group Header -->
+<div class="custom-card mb-4 shadow-sm">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+                <h1 class="h2 fw-bold text-dark m-0">{{ group.name }}</h1>
+                {% if group.is_archived %}
+                    <span class="badge bg-warning text-dark"><i class="bi bi-archive-fill"></i> Archived</span>
+                {% endif %}
+                {% if historical %}
+                    <span class="badge bg-secondary">Viewing Past Cycle</span>
+                {% else %}
+                    <span class="badge bg-success">Active Cycle</span>
+                {% endif %}
+            </div>
+            <p class="text-muted mt-2 mb-0">{{ group.description|default:"No description provided." }}</p>
+        </div>
+        
+        <div class="d-flex gap-2">
+            <!-- Reports -->
+            <a href="{% url 'splitly:export_group_csv' group.id %}" class="btn btn-sm btn-outline-secondary" title="Export CSV">
+                <i class="bi bi-file-earmark-excel"></i> Export CSV
+            </a>
+            <a href="{% if historical %}{% url 'splitly:download_group_cycle_pdf' group.id cycle.id %}{% else %}{% url 'splitly:download_group_pdf' group.id %}{% endif %}" class="btn btn-sm btn-outline-secondary" title="Download PDF Report">
+                <i class="bi bi-file-earmark-pdf"></i> Download PDF
+            </a>
+            
+            {% if not historical and group.created_by == user %}
+                <a href="{% url 'splitly:group_update' group.id %}" class="btn btn-sm btn-outline-primary" title="Edit Group">
+                    <i class="bi bi-pencil"></i>
+                </a>
+                <a href="{% url 'splitly:group_archive' group.id %}" class="btn btn-sm btn-outline-warning" title="Archive Group">
+                    <i class="bi bi-archive"></i>
+                </a>
+                <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#deleteGroupModal" title="Delete Group">
+                    <i class="bi bi-trash"></i>
+                </button>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Left Column: Expenses & Balances -->
+    <div class="col-lg-8">
+        <!-- Cycle Balances & Settlements -->
+        <div class="custom-card mb-4">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-scales"></i> Cycle Balances
+            </h3>
+            
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr class="table-light">
+                            <th>Member</th>
+                            <th class="text-end">Paid Amount</th>
+                            <th class="text-end">Owed Amount</th>
+                            <th class="text-end">Net Balance</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for member, bal in balances.items %}
+                            <tr>
+                                <td>
+                                    <span class="fw-semibold text-dark">{{ member.get_full_name|default:member.username }}</span>
+                                    <div class="text-muted small">{{ member.email }}</div>
+                                </td>
+                                <td class="text-end font-monospace">$0.00</td> <!-- wait, we'll calculate below in js or django templates -->
+                                <td class="text-end font-monospace">$0.00</td> <!-- we will use python/django helper template tags, but we can also display details directly -->
+                                <td class="text-end fw-semibold font-monospace {% if bal > 0 %}text-success{% elif bal < 0 %}text-danger{% endif %}">
+                                    {% if bal > 0 %}+{% endif %}${{ bal|floatformat:2 }}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Debt Simplification Transactions -->
+            <div class="mt-4">
+                <h4 class="h6 fw-bold text-dark mb-3">Suggested Settlement Plan</h4>
+                {% if transactions %}
+                    <div class="d-flex flex-column gap-2">
+                        {% for tx in transactions %}
+                            <div class="border rounded p-3 bg-light d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                <div>
+                                    <span class="fw-bold text-dark">{{ tx.from_user.get_full_name|default:tx.from_user.username }}</span>
+                                    <span class="text-muted"> owes </span>
+                                    <span class="fw-bold text-dark">{{ tx.to_user.get_full_name|default:tx.to_user.username }}</span>
+                                    <span class="badge bg-primary ms-2">${{ tx.amount|floatformat:2 }}</span>
+                                </div>
+                                
+                                {% if not historical and tx.from_user == user %}
+                                    <form action="{% url 'splitly:settle_debt' group.id tx.to_user.id %}" method="POST" class="m-0">
+                                        {% csrf_token %}
+                                        <input type="hidden" name="amount" value="{{ tx.amount }}">
+                                        <button type="submit" class="btn btn-xs btn-success fw-semibold px-3 py-1">
+                                            <i class="bi bi-check-circle-fill"></i> Record Settlement
+                                        </button>
+                                    </form>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-muted small m-0"><i class="bi bi-check2-circle text-success me-1"></i> All members are settled up! No transactions needed.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Expenses List -->
+        <div class="custom-card">
+            <div class="card-header-flex">
+                <h3 class="card-title-custom m-0">
+                    <i class="bi bi-receipt"></i> Expenses in this Cycle
+                </h3>
+                {% if not historical and not group.is_archived %}
+                    <a href="{% url 'splitly:expense_create' group.id %}" class="btn btn-sm btn-primary-custom" style="box-shadow: none;">
+                        <i class="bi bi-plus-lg"></i> Add expense
+                    </a>
+                {% endif %}
+            </div>
+            
+            <div class="expenses-feed mt-2">
+                {% if expenses %}
+                    {% for exp in expenses %}
+                        <div class="item-row">
+                            <div class="item-left">
+                                <div class="category-icon cat-{{ exp.category }}">
+                                    {% if exp.category == 'Rent' %}<i class="bi bi-house-door"></i>
+                                    {% elif exp.category == 'Food' %}<i class="bi bi-egg-fried"></i>
+                                    {% elif exp.category == 'Travel' %}<i class="bi bi-airplane"></i>
+                                    {% elif exp.category == 'Shopping' %}<i class="bi bi-bag"></i>
+                                    {% elif exp.category == 'Electricity' %}<i class="bi bi-lightning"></i>
+                                    {% elif exp.category == 'Entertainment' %}<i class="bi bi-controller"></i>
+                                    {% elif exp.category == 'Salary' %}<i class="bi bi-cash-stack"></i>
+                                    {% elif exp.category == 'Maintenance' %}<i class="bi bi-tools"></i>
+                                    {% elif exp.category == 'Medical' %}<i class="bi bi-heart-pulse"></i>
+                                    {% else %}<i class="bi bi-receipt"></i>{% endif %}
+                                </div>
+                                <div>
+                                    <a href="{% url 'splitly:expense_detail' exp.id %}" class="item-title text-decoration-none text-dark hover-primary">{{ exp.title }}</a>
+                                    <div class="item-subtitle">
+                                        Paid by <strong>{{ exp.paid_by.first_name|default:exp.paid_by.username }}</strong> &bull; {{ exp.date }} &bull; <span class="badge bg-light text-dark font-monospace text-capitalize">{{ exp.get_split_type_display }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="item-right d-flex align-items-center gap-3">
+                                <div class="text-end">
+                                    <span class="amount-text text-dark">${{ exp.amount|floatformat:2 }}</span>
+                                    <div class="text-muted" style="font-size: 11px;">{{ exp.currency }}</div>
+                                </div>
+                                {% if not historical and not group.is_archived %}
+                                    <div class="dropdown">
+                                        <button class="btn btn-link text-muted p-0" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="bi bi-three-dots-vertical"></i>
+                                        </button>
+                                        <ul class="dropdown-menu dropdown-menu-end">
+                                            <li><a class="dropdown-menu-item dropdown-item btn btn-sm" href="{% url 'splitly:expense_update' exp.id %}"><i class="bi bi-pencil me-2"></i> Edit</a></li>
+                                            <li><a class="dropdown-menu-item dropdown-item btn btn-sm text-danger" href="{% url 'splitly:expense_delete' exp.id %}" onclick="return confirm('Delete this expense?');"><i class="bi bi-trash me-2"></i> Delete</a></li>
+                                        </ul>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-receipt text-muted" style="font-size: 36px;"></i>
+                        <p class="text-muted mt-2 mb-0" style="font-size: 14px;">No expenses in this cycle yet.</p>
+                        {% if not historical and not group.is_archived %}
+                            <a href="{% url 'splitly:expense_create' group.id %}" class="btn btn-sm btn-outline-primary mt-3">Add Expense</a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <!-- Right Column: Member History, Dynamic Member Management, Cycle Logs -->
+    <div class="col-lg-4">
+        <!-- Add Group Member (restricted to active cycle) -->
+        {% if not historical and not group.is_archived %}
+            <div class="custom-card mb-4">
+                <h3 class="card-title-custom mb-3">
+                    <i class="bi bi-person-plus"></i> Add Group Member
+                </h3>
+                
+                <form action="{% url 'splitly:group_add_member' group.id %}" method="POST">
+                    {% csrf_token %}
+                    <div class="input-group">
+                        <input type="email" name="email" class="form-control" placeholder="friend@example.com" required>
+                        <button type="submit" class="btn btn-primary-custom" style="box-shadow: none;">Add</button>
+                    </div>
+                    <div class="form-text text-muted mt-2" style="font-size: 11px;">
+                        Adding a member closes the current active cycle and starts a new one automatically. Old expenses remain unchanged.
+                    </div>
+                </form>
+            </div>
+        {% endif %}
+
+        <!-- Members Directory & Status -->
+        <div class="custom-card mb-4">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-people"></i> Cycle Members
+            </h3>
+            <div class="d-flex flex-column gap-2">
+                {% for member in cycle.members.all %}
+                    <div class="d-flex align-items-center justify-content-between p-2 rounded border bg-light">
+                        <div class="d-flex align-items-center gap-2 overflow-hidden">
+                            <div class="avatar-circle" style="width: 32px; height: 32px; font-size: 13px;">
+                                {% if member.profile_picture %}
+                                    <img src="{{ member.profile_picture.url }}" alt="Profile" class="avatar-image">
+                                {% else %}
+                                    {{ member.first_name|default:member.email|slice:":1"|upper }}
+                                {% endif %}
+                            </div>
+                            <div class="overflow-hidden">
+                                <span class="fw-semibold text-dark d-block text-truncate" style="font-size: 13px;">{{ member.get_full_name|default:member.username }}</span>
+                            </div>
+                        </div>
+                        
+                        {% if not historical and not group.is_archived and member != user and member != group.created_by %}
+                            <a href="{% url 'splitly:group_remove_member' group.id member.id %}" class="btn btn-xs btn-outline-danger" onclick="return confirm('Removing a member closes the current active cycle and starts a new one. Old expenses remain unchanged. Remove user?');">
+                                Remove
+                            </a>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Membership Audit Log (never delete historical logs) -->
+        <div class="custom-card mb-4">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-journal-text"></i> Membership History Log
+            </h3>
+            <div class="d-flex flex-column gap-2" style="max-height: 250px; overflow-y: auto;">
+                {% for log in memberships %}
+                    <div class="border-bottom pb-2">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <span class="fw-semibold text-dark small">{{ log.user.get_full_name|default:log.user.email }}</span>
+                            <span class="badge {% if log.status == 'active' %}bg-success-light text-success{% else %}bg-secondary-light text-muted{% endif %}" style="font-size: 10px;">
+                                {{ log.get_status_display }}
+                            </span>
+                        </div>
+                        <div class="text-muted" style="font-size: 11px;">
+                            <span>Joined: {{ log.join_date|date:"Y-m-d" }}</span>
+                            {% if log.leave_date %}
+                                <span class="d-block">Left: {{ log.leave_date|date:"Y-m-d" }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Cycle Logs -->
+        <div class="custom-card">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-history"></i> Previous Expense Cycles
+            </h3>
+            
+            <div class="d-flex flex-column gap-2">
+                <!-- Link back to current active cycle if viewing historical -->
+                {% if historical %}
+                    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-outline-primary w-100 text-start">
+                        <i class="bi bi-arrow-left-circle me-1"></i> Return to Current Cycle
+                    </a>
+                {% endif %}
+                
+                {% if historical_cycles %}
+                    {% for cyc in historical_cycles %}
+                        <a href="{% url 'splitly:group_cycle_detail' group.id cyc.id %}" class="border rounded p-2 text-decoration-none text-dark hover-primary d-flex justify-content-between align-items-center {% if cycle.id == cyc.id %}bg-primary-light border-primary{% else %}bg-light{% endif %}" style="font-size: 13px;">
+                            <div>
+                                <strong class="d-block text-dark">Cycle #{{ cyc.id }}</strong>
+                                <span class="text-muted" style="font-size: 11px;">Closed: {{ cyc.end_date|date:"Y-m-d" }}</span>
+                            </div>
+                            <span class="badge bg-secondary" style="font-size: 10px;">Closed</span>
+                        </a>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted small m-0">No past cycles. This is the first cycle.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Group Confirmation Modal -->
+<div class="modal fade" id="deleteGroupModal" tabindex="-1" aria-labelledby="deleteGroupModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+            <div class="modal-header border-bottom-0 pb-0">
+                <h5 class="modal-title fw-bold" id="deleteGroupModalLabel">Delete Group</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body py-4">
+                <p class="text-muted mb-0">Are you sure you want to delete the group <strong>{{ group.name }}</strong>? This will soft delete the group records.</p>
+            </div>
+            <div class="modal-footer border-top-0 pt-0">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" style="border-radius: 8px;">Cancel</button>
+                <a href="{% url 'splitly:group_delete' group.id %}" class="btn btn-danger" style="border-radius: 8px;">Delete Group</a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.bg-success-light { background-color: var(--success-light); }
+.bg-secondary-light { background-color: #f1f5f9; }
+.hover-primary:hover { color: var(--primary-color) !important; border-color: var(--primary-color) !important; }
+</style>
+{% endblock %}
