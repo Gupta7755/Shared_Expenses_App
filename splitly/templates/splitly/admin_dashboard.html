@@ -1,0 +1,828 @@
+{% extends 'splitly/base.html' %}
+{% load static %}
+
+{% block title %}Admin Panel — Splitly{% endblock %}
+
+{% block extra_head %}
+<style>
+  :root {
+    --admin-accent: #e74c3c;
+    --admin-accent-glow: rgba(231, 76, 60, 0.25);
+    --admin-surface: rgba(255,255,255,0.04);
+    --admin-border: rgba(255,255,255,0.08);
+  }
+
+  /* ── Page Header ── */
+  .admin-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .admin-header-left h1 {
+    font-size: 1.75rem;
+    font-weight: 800;
+    margin: 0;
+    background: linear-gradient(135deg, #e74c3c, #ff6b6b);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .admin-header-left p {
+    color: var(--text-secondary, #8892a4);
+    font-size: 0.875rem;
+    margin: 0;
+  }
+  .admin-badge {
+    background: rgba(231,76,60,0.15);
+    border: 1px solid rgba(231,76,60,0.4);
+    color: #e74c3c;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 4px 12px;
+    border-radius: 100px;
+    text-transform: uppercase;
+  }
+
+  /* ── Stats Row ── */
+  .admin-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .admin-stat-card {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .admin-stat-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .admin-stat-num {
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 0.35rem;
+  }
+  .admin-stat-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary, #8892a4);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Tab Nav ── */
+  .admin-tabs {
+    display: flex;
+    gap: 0.25rem;
+    overflow-x: auto;
+    padding-bottom: 0;
+    border-bottom: 2px solid var(--admin-border);
+    margin-bottom: 1.5rem;
+    scrollbar-width: none;
+  }
+  .admin-tabs::-webkit-scrollbar { display: none; }
+  .admin-tab-btn {
+    background: none;
+    border: none;
+    padding: 0.65rem 1.1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary, #8892a4);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    white-space: nowrap;
+    transition: color 0.2s, border-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .admin-tab-btn.active {
+    color: #e74c3c;
+    border-bottom-color: #e74c3c;
+  }
+  .admin-tab-btn:hover:not(.active) { color: #ccc; }
+  .tab-count {
+    background: rgba(255,255,255,0.08);
+    border-radius: 100px;
+    padding: 1px 7px;
+    font-size: 0.7rem;
+  }
+  .admin-tab-btn.active .tab-count {
+    background: rgba(231,76,60,0.2);
+    color: #e74c3c;
+  }
+
+  /* ── Tab Panels ── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  /* ── Search Bar ── */
+  .admin-search-bar {
+    background: var(--admin-surface);
+    border: 1px solid var(--admin-border);
+    border-radius: 10px;
+    padding: 0.55rem 1rem;
+    color: #fff;
+    font-size: 0.875rem;
+    width: 100%;
+    max-width: 360px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .admin-search-bar:focus { border-color: #e74c3c; }
+  .admin-search-bar::placeholder { color: #5a6374; }
+
+  /* ── Data Table ── */
+  .admin-table-wrap {
+    overflow-x: auto;
+    border-radius: 12px;
+    border: 1px solid var(--admin-border);
+  }
+  .admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+    min-width: 640px;
+  }
+  .admin-table thead th {
+    background: rgba(255,255,255,0.05);
+    padding: 0.7rem 1rem;
+    text-align: left;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-secondary, #8892a4);
+    border-bottom: 1px solid var(--admin-border);
+    white-space: nowrap;
+  }
+  .admin-table tbody tr {
+    border-bottom: 1px solid var(--admin-border);
+    transition: background 0.15s;
+  }
+  .admin-table tbody tr:last-child { border-bottom: none; }
+  .admin-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+  .admin-table td {
+    padding: 0.65rem 1rem;
+    color: #c8d0e0;
+    vertical-align: middle;
+  }
+  .admin-table td .text-muted { color: #5a6374 !important; font-size: 0.7rem; }
+
+  /* ── Status Badges ── */
+  .status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  .badge-active   { background: rgba(46,213,115,0.15); color: #2ed573; border: 1px solid rgba(46,213,115,0.3); }
+  .badge-inactive { background: rgba(255,71,87,0.15);  color: #ff4757; border: 1px solid rgba(255,71,87,0.3); }
+  .badge-staff    { background: rgba(255,165,0,0.15);  color: #ffa500; border: 1px solid rgba(255,165,0,0.3); }
+  .badge-archived { background: rgba(150,150,150,0.15); color: #aaa;   border: 1px solid rgba(150,150,150,0.3); }
+  .badge-deleted  { background: rgba(255,71,87,0.1);   color: #ff4757; border: 1px dashed rgba(255,71,87,0.4); }
+  .badge-complete { background: rgba(46,213,115,0.15); color: #2ed573; border: 1px solid rgba(46,213,115,0.3); }
+  .badge-pending  { background: rgba(255,165,0,0.12);  color: #ffa500; border: 1px solid rgba(255,165,0,0.3); }
+  .badge-group    { background: rgba(100,180,255,0.12); color: #64b4ff; border: 1px solid rgba(100,180,255,0.25); }
+  .badge-indiv    { background: rgba(200,140,255,0.12); color: #c88cff; border: 1px solid rgba(200,140,255,0.25); }
+
+  /* ── Action Buttons ── */
+  .btn-admin {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 4px 10px;
+    border-radius: 7px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.15s;
+    text-decoration: none;
+  }
+  .btn-admin:hover { opacity: 0.8; transform: scale(0.97); }
+  .btn-danger-soft { background: rgba(255,71,87,0.15); color: #ff4757; }
+  .btn-warning-soft{ background: rgba(255,165,0,0.15); color: #ffa500; }
+  .btn-success-soft{ background: rgba(46,213,115,0.15); color: #2ed573; }
+  .btn-info-soft   { background: rgba(100,180,255,0.15); color: #64b4ff; }
+
+  /* ── Audit Log ── */
+  .audit-search-wrap { display: flex; gap: 0.75rem; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; }
+  .audit-entry {
+    display: flex;
+    gap: 1rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--admin-border);
+    align-items: flex-start;
+    transition: background 0.15s;
+  }
+  .audit-entry:last-child { border-bottom: none; }
+  .audit-entry:hover { background: rgba(255,255,255,0.02); }
+  .audit-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+  }
+  .audit-icon.login       { background: rgba(100,180,255,0.12); color: #64b4ff; }
+  .audit-icon.expense_added   { background: rgba(46,213,115,0.12); color: #2ed573; }
+  .audit-icon.expense_updated { background: rgba(255,165,0,0.12); color: #ffa500; }
+  .audit-icon.expense_deleted { background: rgba(255,71,87,0.12); color: #ff4757; }
+  .audit-icon.settlement_added{ background: rgba(200,140,255,0.12); color: #c88cff; }
+  .audit-icon.member_joined   { background: rgba(46,213,115,0.12); color: #2ed573; }
+  .audit-icon.member_left     { background: rgba(255,165,0,0.12); color: #ffa500; }
+  .audit-icon.csv_imported    { background: rgba(100,180,255,0.12); color: #64b4ff; }
+  .audit-icon.pdf_generated   { background: rgba(200,140,255,0.12); color: #c88cff; }
+  .audit-text { flex: 1; min-width: 0; }
+  .audit-text strong { display: block; font-size: 0.8rem; color: #dde3f0; font-weight: 600; }
+  .audit-text small { font-size: 0.7rem; color: #5a6374; }
+
+  /* ── Empty State ── */
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #5a6374;
+  }
+  .empty-state i { font-size: 2.5rem; margin-bottom: 0.75rem; display: block; }
+  .empty-state p { font-size: 0.85rem; margin: 0; }
+
+  /* ── User Avatar ── */
+  .user-avatar-sm {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+  }
+  .user-cell { display: flex; align-items: center; gap: 0.6rem; }
+  .user-cell .user-info-mini { line-height: 1.2; }
+  .user-cell .user-info-mini strong { display: block; font-size: 0.8rem; color: #dde3f0; }
+  .user-cell .user-info-mini span { font-size: 0.7rem; color: #5a6374; }
+
+  /* ── Responsive ── */
+  @media (max-width: 640px) {
+    .admin-stats { grid-template-columns: repeat(3, 1fr); }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+  <div class="admin-header-left">
+    <h1><i class="bi bi-shield-lock-fill me-2"></i>Admin Panel</h1>
+    <p>System-wide management and audit trail. Staff access only.</p>
+  </div>
+  <span class="admin-badge"><i class="bi bi-patch-check-fill me-1"></i>Staff</span>
+</div>
+
+<!-- Stats Row -->
+<div class="admin-stats">
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#64b4ff;">{{ users.count }}</div>
+    <div class="admin-stat-label">Users</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#2ed573;">{{ groups.count }}</div>
+    <div class="admin-stat-label">Groups</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#ffa500;">{{ expenses.count }}</div>
+    <div class="admin-stat-label">Expenses</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#c88cff;">{{ settlements.count }}</div>
+    <div class="admin-stat-label">Settlements</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#ff6b6b;">{{ csv_imports.count }}</div>
+    <div class="admin-stat-label">CSV Imports</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#e74c3c;">{{ reports.count }}</div>
+    <div class="admin-stat-label">PDF Reports</div>
+  </div>
+  <div class="admin-stat-card">
+    <div class="admin-stat-num" style="color:#8892a4;">{{ audit_logs.count }}</div>
+    <div class="admin-stat-label">Audit Entries</div>
+  </div>
+</div>
+
+<!-- Tab Nav -->
+<div class="admin-tabs" role="tablist" aria-label="Admin Sections">
+  <button class="admin-tab-btn active" data-tab="tab-users" id="btn-tab-users" role="tab" aria-selected="true">
+    <i class="bi bi-people-fill"></i> Users <span class="tab-count">{{ users.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-groups" id="btn-tab-groups" role="tab" aria-selected="false">
+    <i class="bi bi-collection-fill"></i> Groups <span class="tab-count">{{ groups.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-expenses" id="btn-tab-expenses" role="tab" aria-selected="false">
+    <i class="bi bi-receipt-cutoff"></i> Expenses <span class="tab-count">{{ expenses.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-settlements" id="btn-tab-settlements" role="tab" aria-selected="false">
+    <i class="bi bi-arrow-left-right"></i> Settlements <span class="tab-count">{{ settlements.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-csv" id="btn-tab-csv" role="tab" aria-selected="false">
+    <i class="bi bi-filetype-csv"></i> CSV Imports <span class="tab-count">{{ csv_imports.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-reports" id="btn-tab-reports" role="tab" aria-selected="false">
+    <i class="bi bi-file-earmark-pdf-fill"></i> PDF Reports <span class="tab-count">{{ reports.count }}</span>
+  </button>
+  <button class="admin-tab-btn" data-tab="tab-audit" id="btn-tab-audit" role="tab" aria-selected="false">
+    <i class="bi bi-journal-text"></i> Audit Log <span class="tab-count">{{ audit_logs.count }}</span>
+  </button>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 1 — USERS
+════════════════════════════════════════ -->
+<div class="tab-panel active" id="tab-users" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Email</th>
+          <th>Joined</th>
+          <th>Status</th>
+          <th>Role</th>
+          <th>Preferred Currency</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            <div class="user-cell">
+              <div class="user-avatar-sm">{{ u.first_name|default:u.email|slice:":1"|upper }}</div>
+              <div class="user-info-mini">
+                <strong>{{ u.get_full_name|default:u.username }}</strong>
+                <span>#{{ u.id }}</span>
+              </div>
+            </div>
+          </td>
+          <td>{{ u.email }}</td>
+          <td><span title="{{ u.date_joined|date:'Y-m-d H:i' }}">{{ u.date_joined|date:"M j, Y" }}</span></td>
+          <td>
+            {% if u.is_active %}
+              <span class="status-badge badge-active">Active</span>
+            {% else %}
+              <span class="status-badge badge-inactive">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if u.is_superuser %}
+              <span class="status-badge badge-staff">Superuser</span>
+            {% elif u.is_staff %}
+              <span class="status-badge badge-staff">Staff</span>
+            {% else %}
+              <span class="text-muted" style="font-size:0.72rem;">Member</span>
+            {% endif %}
+          </td>
+          <td>{{ u.preferred_currency|default:"INR" }}</td>
+          <td>
+            {% if u != request.user %}
+            <form method="post" action="{% url 'splitly:admin_toggle_user_status' u.id %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn-admin {% if u.is_active %}btn-danger-soft{% else %}btn-success-soft{% endif %}"
+                onclick="return confirm('Toggle active status for {{ u.email }}?')">
+                {% if u.is_active %}
+                  <i class="bi bi-person-x-fill"></i> Deactivate
+                {% else %}
+                  <i class="bi bi-person-check-fill"></i> Activate
+                {% endif %}
+              </button>
+            </form>
+            {% else %}
+              <span class="text-muted" style="font-size:0.7rem;">(you)</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7"><div class="empty-state"><i class="bi bi-people"></i><p>No users found.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 2 — GROUPS
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-groups" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Group</th>
+          <th>Created By</th>
+          <th>Created</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for g in groups %}
+        <tr>
+          <td>
+            <strong style="color:#dde3f0;">{{ g.name }}</strong>
+            <div class="text-muted">#{{ g.id }}</div>
+          </td>
+          <td>{{ g.created_by.email|default:"—" }}</td>
+          <td>{{ g.created_at|date:"M j, Y" }}</td>
+          <td>
+            {% if g.is_deleted %}
+              <span class="status-badge badge-deleted">Deleted</span>
+            {% elif g.is_archived %}
+              <span class="status-badge badge-archived">Archived</span>
+            {% else %}
+              <span class="status-badge badge-active">Active</span>
+            {% endif %}
+          </td>
+          <td style="display:flex; gap:0.4rem; flex-wrap:wrap;">
+            <form method="post" action="{% url 'splitly:admin_toggle_group_archive' g.id %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn-admin btn-warning-soft"
+                onclick="return confirm('Toggle archive for \'{{ g.name }}\'?')">
+                <i class="bi bi-archive-fill"></i>
+                {% if g.is_archived %}Unarchive{% else %}Archive{% endif %}
+              </button>
+            </form>
+            <form method="post" action="{% url 'splitly:admin_toggle_group_delete' g.id %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn-admin btn-danger-soft"
+                onclick="return confirm('Toggle delete for \'{{ g.name }}\'?')">
+                <i class="bi bi-trash-fill"></i>
+                {% if g.is_deleted %}Restore{% else %}Delete{% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="empty-state"><i class="bi bi-collection"></i><p>No groups found.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 3 — EXPENSES
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-expenses" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Group</th>
+          <th>Paid By</th>
+          <th>Amount</th>
+          <th>Category</th>
+          <th>Date</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for exp in expenses %}
+        <tr {% if exp.is_deleted %}style="opacity:0.5;"{% endif %}>
+          <td>
+            <strong style="color:#dde3f0;">{{ exp.title|truncatechars:30 }}</strong>
+            <div class="text-muted">#{{ exp.id }}</div>
+          </td>
+          <td>{{ exp.cycle.group.name|truncatechars:20 }}</td>
+          <td>{{ exp.paid_by.email|default:"—" }}</td>
+          <td>
+            <span style="font-weight:700; color:#2ed573;">{{ exp.currency }} {{ exp.amount }}</span>
+            {% if exp.currency != "INR" %}
+            <div class="text-muted">≈ ₹{{ exp.converted_inr_value|floatformat:2 }}</div>
+            {% endif %}
+          </td>
+          <td><span class="status-badge badge-group" style="font-size:0.65rem;">{{ exp.category }}</span></td>
+          <td>{{ exp.date|date:"M j, Y" }}</td>
+          <td>
+            {% if exp.is_deleted %}
+              <span class="status-badge badge-deleted">Deleted</span>
+            {% else %}
+              <span class="status-badge badge-active">Active</span>
+            {% endif %}
+          </td>
+          <td>
+            <form method="post" action="{% url 'splitly:admin_toggle_expense_delete' exp.id %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn-admin {% if exp.is_deleted %}btn-success-soft{% else %}btn-danger-soft{% endif %}"
+                onclick="return confirm('Toggle deletion for expense \'{{ exp.title }}\'?')">
+                {% if exp.is_deleted %}
+                  <i class="bi bi-arrow-counterclockwise"></i> Restore
+                {% else %}
+                  <i class="bi bi-trash-fill"></i> Delete
+                {% endif %}
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8"><div class="empty-state"><i class="bi bi-receipt-cutoff"></i><p>No expenses found.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 4 — SETTLEMENTS
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-settlements" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Payer → Receiver</th>
+          <th>Group</th>
+          <th>Amount</th>
+          <th>Date</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in settlements %}
+        <tr>
+          <td class="text-muted">{{ s.id }}</td>
+          <td>
+            <div style="display:flex; align-items:center; gap:0.4rem;">
+              <span style="color:#64b4ff; font-weight:600;">{{ s.payer.email }}</span>
+              <i class="bi bi-arrow-right" style="color:#5a6374;"></i>
+              <span style="color:#c88cff; font-weight:600;">{{ s.receiver.email }}</span>
+            </div>
+          </td>
+          <td>{{ s.group.name }}</td>
+          <td>
+            <span style="font-weight:700; color:#2ed573;">{{ s.currency }} {{ s.amount }}</span>
+            {% if s.currency != "INR" %}
+            <div class="text-muted">≈ ₹{{ s.converted_inr_value|floatformat:2 }}</div>
+            {% endif %}
+          </td>
+          <td>{{ s.date|date:"M j, Y" }}</td>
+          <td>
+            <form method="post" action="{% url 'splitly:admin_delete_settlement' s.id %}" style="display:inline;">
+              {% csrf_token %}
+              <button type="submit" class="btn-admin btn-danger-soft"
+                onclick="return confirm('Permanently delete this settlement? This action cannot be undone.')">
+                <i class="bi bi-trash3-fill"></i> Delete
+              </button>
+            </form>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6"><div class="empty-state"><i class="bi bi-arrow-left-right"></i><p>No settlements found.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 5 — CSV IMPORTS
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-csv" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>File Name</th>
+          <th>Group</th>
+          <th>Uploaded By</th>
+          <th>Uploaded At</th>
+          <th>Rows</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for imp in csv_imports %}
+        <tr>
+          <td class="text-muted">{{ imp.id }}</td>
+          <td>
+            <strong style="color:#dde3f0;">{{ imp.file_name|truncatechars:35 }}</strong>
+          </td>
+          <td>{{ imp.group.name }}</td>
+          <td>{{ imp.uploaded_by.email|default:"—" }}</td>
+          <td>{{ imp.uploaded_at|date:"M j, Y H:i" }}</td>
+          <td>
+            <span style="color:#2ed573;">{{ imp.valid_rows }}</span>/<span style="color:#ffa500;">{{ imp.invalid_rows }}</span>
+            <div class="text-muted">valid/anomaly</div>
+          </td>
+          <td>
+            {% if imp.status == "completed" %}
+              <span class="status-badge badge-complete">Completed</span>
+            {% elif imp.status == "pending" %}
+              <span class="status-badge badge-pending">Pending</span>
+            {% else %}
+              <span class="status-badge badge-archived">{{ imp.status|capfirst }}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7"><div class="empty-state"><i class="bi bi-filetype-csv"></i><p>No CSV imports found.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 6 — PDF REPORTS
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-reports" role="tabpanel">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Type</th>
+          <th>Subject</th>
+          <th>Generated By</th>
+          <th>Generated At</th>
+          <th>Download</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rpt in reports %}
+        <tr>
+          <td class="text-muted">{{ rpt.id }}</td>
+          <td>
+            {% if rpt.report_type == "group" %}
+              <span class="status-badge badge-group">Group</span>
+            {% else %}
+              <span class="status-badge badge-indiv">Individual</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if rpt.group %}
+              <strong style="color:#dde3f0;">{{ rpt.group.name }}</strong>
+              {% if rpt.cycle %}<div class="text-muted">Cycle #{{ rpt.cycle.id }}</div>{% endif %}
+            {% elif rpt.user %}
+              <strong style="color:#dde3f0;">{{ rpt.user.get_full_name|default:rpt.user.email }}</strong>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>{{ rpt.generated_by.email|default:"—" }}</td>
+          <td>{{ rpt.generated_at|date:"M j, Y H:i" }}</td>
+          <td>
+            {% if rpt.file %}
+              <a href="{{ rpt.file.url }}" class="btn-admin btn-info-soft" download target="_blank">
+                <i class="bi bi-download"></i> Download
+              </a>
+            {% else %}
+              <span class="text-muted" style="font-size:0.7rem;">No file</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6"><div class="empty-state"><i class="bi bi-file-earmark-pdf"></i><p>No PDF reports generated yet.</p></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     TAB 7 — AUDIT LOG
+════════════════════════════════════════ -->
+<div class="tab-panel" id="tab-audit" role="tabpanel">
+  <div class="audit-search-wrap">
+    <form method="get" style="display:flex; gap:0.5rem; flex:1; max-width:480px;">
+      <input type="search" name="q" id="audit-search-input" placeholder="Search logs by action, description or email…"
+        class="admin-search-bar" value="{{ q }}" autocomplete="off">
+      <button type="submit" class="btn-admin btn-info-soft" style="padding:0.55rem 1rem; border-radius:10px;">
+        <i class="bi bi-search"></i>
+      </button>
+      {% if q %}
+      <a href="{% url 'splitly:admin_dashboard' %}" class="btn-admin btn-warning-soft" style="padding:0.55rem 1rem; border-radius:10px;">
+        <i class="bi bi-x-circle-fill"></i>
+      </a>
+      {% endif %}
+    </form>
+    {% if q %}
+      <span style="color:#8892a4; font-size:0.8rem;">Showing results for "<strong style="color:#fff;">{{ q }}</strong>"</span>
+    {% endif %}
+  </div>
+
+  <div class="admin-table-wrap" style="padding:0;">
+    {% for log in audit_logs %}
+    <div class="audit-entry">
+      <div class="audit-icon {{ log.action }}">
+        {% if log.action == "login" %}<i class="bi bi-box-arrow-in-right"></i>
+        {% elif log.action == "expense_added" %}<i class="bi bi-plus-circle-fill"></i>
+        {% elif log.action == "expense_updated" %}<i class="bi bi-pencil-fill"></i>
+        {% elif log.action == "expense_deleted" %}<i class="bi bi-trash-fill"></i>
+        {% elif log.action == "settlement_added" %}<i class="bi bi-arrow-left-right"></i>
+        {% elif log.action == "member_joined" %}<i class="bi bi-person-plus-fill"></i>
+        {% elif log.action == "member_left" %}<i class="bi bi-person-dash-fill"></i>
+        {% elif log.action == "csv_imported" %}<i class="bi bi-filetype-csv"></i>
+        {% elif log.action == "pdf_generated" %}<i class="bi bi-file-earmark-pdf-fill"></i>
+        {% else %}<i class="bi bi-activity"></i>
+        {% endif %}
+      </div>
+      <div class="audit-text">
+        <strong>{{ log.description }}</strong>
+        <small>
+          {% if log.user %}<span style="color:#64b4ff;">{{ log.user.email }}</span> · {% endif %}
+          {{ log.timestamp|date:"M j, Y \a\t H:i" }}
+        </small>
+      </div>
+      <div style="flex-shrink:0;">
+        <span class="status-badge" style="
+          background: rgba(255,255,255,0.05);
+          color: #8892a4;
+          border: 1px solid rgba(255,255,255,0.06);
+          font-size:0.65rem;
+          letter-spacing:0.3px;
+        ">{{ log.action|upper }}</span>
+      </div>
+    </div>
+    {% empty %}
+    <div class="empty-state">
+      <i class="bi bi-journal-text"></i>
+      <p>{% if q %}No audit entries match "{{ q }}".{% else %}No audit log entries yet.{% endif %}</p>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const tabBtns = document.querySelectorAll('.admin-tab-btn');
+  const tabPanels = document.querySelectorAll('.tab-panel');
+
+  function activateTab(targetId) {
+    tabBtns.forEach(b => {
+      const isActive = b.dataset.tab === targetId;
+      b.classList.toggle('active', isActive);
+      b.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+    tabPanels.forEach(p => {
+      p.classList.toggle('active', p.id === targetId);
+    });
+    // Persist to sessionStorage
+    try { sessionStorage.setItem('adminActiveTab', targetId); } catch (_) {}
+  }
+
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', () => activateTab(btn.dataset.tab));
+  });
+
+  // Restore last active tab from sessionStorage
+  try {
+    const saved = sessionStorage.getItem('adminActiveTab');
+    if (saved && document.getElementById(saved)) {
+      activateTab(saved);
+    }
+  } catch (_) {}
+
+  // If audit-log tab is active, focus search
+  tabBtns.forEach(btn => {
+    btn.addEventListener('click', function () {
+      if (this.dataset.tab === 'tab-audit') {
+        const inp = document.getElementById('audit-search-input');
+        if (inp) setTimeout(() => inp.focus(), 250);
+      }
+    });
+  });
+
+  // If user comes back from a q= search, jump to audit tab
+  const urlQ = new URLSearchParams(window.location.search).get('q');
+  if (urlQ) {
+    activateTab('tab-audit');
+  }
+});
+</script>
+{% endblock %}

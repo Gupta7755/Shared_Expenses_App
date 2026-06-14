@@ -1,0 +1,225 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Analytics - Splitly{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+        <h1 class="h2 fw-bold text-dark m-0">Financial Analytics</h1>
+        <p class="text-muted m-0">Visualize spending trends, categories, currency distributions, and member contributions across all your groups.</p>
+    </div>
+    <div>
+        <a href="{% url 'splitly:download_individual_pdf' %}" class="btn btn-primary-custom">
+            <i class="bi bi-file-earmark-pdf"></i> Download Individual PDF Report
+        </a>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
+    <!-- Spending Trends / Monthly Expenses Chart -->
+    <div class="col-lg-8">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-graph-up-arrow text-primary"></i> Monthly Spend & Trends (INR)
+                </h2>
+            </div>
+            <div class="chart-container" style="position: relative; height: 300px;">
+                <canvas id="monthlyTrendChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Category Expenses -->
+    <div class="col-lg-4">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-pie-chart text-success"></i> Expenses by Category
+                </h2>
+            </div>
+            <div class="chart-container" style="position: relative; height: 300px;">
+                <canvas id="categoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <!-- Member Contributions -->
+    <div class="col-lg-7">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-person-check text-warning"></i> Member Contributions (INR)
+                </h2>
+            </div>
+            <div class="chart-container" style="position: relative; height: 280px;">
+                <canvas id="memberChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Currency Usage -->
+    <div class="col-lg-5">
+        <div class="custom-card h-100">
+            <div class="card-header-flex">
+                <h2 class="card-title-custom">
+                    <i class="bi bi-currency-exchange text-info"></i> Currency Usage Frequency
+                </h2>
+            </div>
+            <div class="chart-container" style="position: relative; height: 280px;">
+                <canvas id="currencyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        // Load JSON data passed from Django backend
+        const monthlyLabels = {{ monthly_labels|safe }};
+        const monthlyValues = {{ monthly_values|safe }};
+        
+        const catLabels = {{ cat_labels|safe }};
+        const catValues = {{ cat_values|safe }};
+        
+        const currLabels = {{ curr_labels|safe }};
+        const currValues = {{ curr_values|safe }};
+        
+        const memberLabels = {{ member_labels|safe }};
+        const memberValues = {{ member_values|safe }};
+        
+        // 1. Monthly Trends Chart (Line Chart)
+        const ctxMonthly = document.getElementById('monthlyTrendChart').getContext('2d');
+        new Chart(ctxMonthly, {
+            type: 'line',
+            data: {
+                labels: monthlyLabels,
+                datasets: [{
+                    label: 'Spent (INR)',
+                    data: monthlyValues,
+                    borderColor: '#6366f1',
+                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                    borderWidth: 3,
+                    fill: true,
+                    tension: 0.3,
+                    pointBackgroundColor: '#4f46e5',
+                    pointRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return '₹' + value.toLocaleString(); }
+                        },
+                        grid: { color: '#f1f5f9' }
+                    },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+
+        // 2. Category Share Chart (Doughnut Chart)
+        const ctxCat = document.getElementById('categoryChart').getContext('2d');
+        const catColors = [
+            '#f97316', '#22c55e', '#3b82f6', '#a855f7', 
+            '#eab308', '#ec4899', '#0d9488', '#d97706', 
+            '#ef4444', '#64748b'
+        ];
+        new Chart(ctxCat, {
+            type: 'doughnut',
+            data: {
+                labels: catLabels,
+                datasets: [{
+                    data: catValues,
+                    backgroundColor: catColors,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right',
+                        labels: { boxWidth: 12, font: { size: 11 } }
+                    }
+                },
+                cutout: '65%'
+            }
+        });
+
+        // 3. Member Contribution Chart (Horizontal Bar Chart)
+        const ctxMember = document.getElementById('memberChart').getContext('2d');
+        new Chart(ctxMember, {
+            type: 'bar',
+            data: {
+                labels: memberLabels,
+                datasets: [{
+                    label: 'Total Paid (INR)',
+                    data: memberValues,
+                    backgroundColor: '#f59e0b',
+                    borderRadius: 6,
+                    maxBarThickness: 32
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) { return '₹' + value.toLocaleString(); }
+                        },
+                        grid: { color: '#f1f5f9' }
+                    },
+                    y: { grid: { display: false } }
+                }
+            }
+        });
+
+        // 4. Currency Usage Chart (Pie Chart)
+        const ctxCurr = document.getElementById('currencyChart').getContext('2d');
+        const currColors = ['#22c55e', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6'];
+        new Chart(ctxCurr, {
+            type: 'pie',
+            data: {
+                labels: currLabels,
+                datasets: [{
+                    data: currValues,
+                    backgroundColor: currColors,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { boxWidth: 12, font: { size: 11 } }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}

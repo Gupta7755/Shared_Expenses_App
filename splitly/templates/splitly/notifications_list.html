@@ -1,0 +1,110 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Notifications - Splitly{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+    <div>
+        <h1 class="h2 fw-bold text-dark m-0">Notification Center</h1>
+        <p class="text-muted m-0">Stay updated with expenses, settlements, and group activities.</p>
+    </div>
+    <div class="d-flex gap-2">
+        {% if notifications %}
+            <form action="{% url 'splitly:mark_all_notifications_read' %}" method="POST" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary btn-sm rounded-3 px-3 py-2 fw-semibold">
+                    <i class="bi bi-check2-all"></i> Mark all as read
+                </button>
+            </form>
+            <form action="{% url 'splitly:clear_all_notifications' %}" method="POST" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-danger btn-sm rounded-3 px-3 py-2 fw-semibold" onclick="return confirm('Are you sure you want to clear your notification history?');">
+                    <i class="bi bi-trash"></i> Clear history
+                </button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+
+<div class="custom-card">
+    {% if notifications %}
+        <div class="d-flex flex-column gap-3">
+            {% for notif in notifications %}
+                <div class="p-3 border rounded-3 d-flex justify-content-between align-items-start gap-3 transition-all notification-row {% if not notif.is_read %}bg-light border-primary{% endif %}" id="notif-{{ notif.id }}">
+                    <div class="d-flex gap-3">
+                        <div class="item-icon flex-shrink-0 mt-1 {% if notif.notification_type == 'expense_added' %}bg-primary-light text-primary{% elif notif.notification_type == 'settlement_completed' %}bg-success-light text-success{% else %}bg-secondary-light text-secondary{% endif %}" style="width: 38px; height: 38px;">
+                            {% if notif.notification_type == 'expense_added' %}
+                                <i class="bi bi-receipt"></i>
+                            {% elif notif.notification_type == 'settlement_completed' %}
+                                <i class="bi bi-check-circle"></i>
+                            {% elif notif.notification_type == 'csv_imported' %}
+                                <i class="bi bi-file-earmark-spreadsheet"></i>
+                            {% elif notif.notification_type == 'report_generated' %}
+                                <i class="bi bi-file-pdf"></i>
+                            {% else %}
+                                <i class="bi bi-bell"></i>
+                            {% endif %}
+                        </div>
+                        <div>
+                            <h5 class="m-0 fw-bold text-dark" style="font-size: 14px;">{{ notif.title }}</h5>
+                            <p class="m-0 text-muted mt-1" style="font-size: 13px;">{{ notif.message }}</p>
+                            <span class="text-muted d-block mt-2" style="font-size: 11px;">{{ notif.created_at }} UTC</span>
+                        </div>
+                    </div>
+                    {% if not notif.is_read %}
+                        <button class="btn btn-xs btn-outline-primary fw-semibold rounded-2 px-2 py-1 mark-read-btn" data-notif-id="{{ notif.id }}">
+                            Mark read
+                        </button>
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="text-center py-5">
+            <i class="bi bi-bell-slash text-muted" style="font-size: 48px;"></i>
+            <h4 class="mt-3 fw-bold text-dark">No Notifications</h4>
+            <p class="text-muted mb-0">You're all caught up! Updates regarding your groups and settlements will appear here.</p>
+        </div>
+    {% endif %}
+</div>
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const markReadButtons = document.querySelectorAll('.mark-read-btn');
+    markReadButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+            const notifId = this.getAttribute('data-notif-id');
+            const row = document.getElementById(`notif-${notifId}`);
+            
+            fetch(`/notifications/mark-read/${notifId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': '{{ csrf_token }}',
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.ok) {
+                    row.classList.remove('bg-light', 'border-primary');
+                    this.remove();
+                    // Dynamically update notification badge count if navbar has it
+                    const badge = document.querySelector('.notification-badge');
+                    if (badge) {
+                        let count = parseInt(badge.textContent);
+                        if (count > 1) {
+                            badge.textContent = count - 1;
+                        } else {
+                            badge.remove();
+                        }
+                    }
+                }
+            })
+            .catch(err => console.error('Error:', err));
+        });
+    });
+});
+</script>
+{% endblock %}
+{% endblock %}
