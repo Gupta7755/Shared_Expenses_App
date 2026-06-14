@@ -1,0 +1,6 @@
+Django==4.2.30
+pandas==3.0.2
+pdfplumber==0.11.9
+reportlab==4.5.1
+pillow==12.2.0
+python-dotenv==1.2.2

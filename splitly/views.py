@@ -1,7 +1,8 @@
 import io
 from decimal import Decimal
 import json
-from datetime import datetime
+from datetime import datetime, date, timedelta
+from collections import defaultdict
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout, authenticate
 from django.contrib.auth.decorators import login_required, user_passes_test
@@ -17,17 +18,21 @@ from django.views.decorators.http import require_POST
 from splitly.models import (
     User, Group, Membership, ExpenseCycle, ExpenseCycleMember,
     Expense, ExpenseParticipant, Settlement, Currency, CSVImport, ImportLog,
-    PDFReport, AuditLog, Notification
+    PDFReport, PDFImport, AuditLog, Notification
 )
 from splitly.forms import (
     CustomUserCreationForm, UserProfileForm, GroupForm, ExpenseForm,
-    CSVImportUploadForm, SettlementForm, CurrencyForm
+    CSVImportUploadForm, PDFImportUploadForm, SettlementForm, CurrencyForm
 )
-from splitly.split_engine import calculate_splits, calculate_cycle_balances, simplify_debts
+from splitly.split_engine import calculate_splits, calculate_cycle_balances, simplify_debts, suggest_split_type
 from splitly.balance_engine import get_group_balances, get_simple_balances, simplify_debts as simplify
 from splitly.currency import convert_to_inr, convert_from_inr, get_rate, get_all_rates, seed_default_rates, format_currency, SUPPORTED_CURRENCIES
 from splitly.csv_engine import parse_csv, validate_rows, execute_import, build_report
 from splitly.reports import generate_expenses_csv, generate_group_pdf_report, generate_individual_pdf_report
+from splitly.pdf_engine import (
+    parse_pdf, extract_expenses_from_text, validate_pdf_rows,
+    execute_pdf_import, build_pdf_report, ai_suggest_category
+)
 
 def landing(request):
     if request.user.is_authenticated:
@@ -148,6 +153,7 @@ def dashboard(request):
         group_balances.append({
             'group': g,
             'balance': user_bal,
+            'abs_balance': abs(user_bal),
             'members_count': cycle.members.count()
         })
         
@@ -1343,54 +1349,177 @@ def exchange_rates(request):
 
 # ─── PHASE 3 NEW VIEWS ─────────────────────────────────────────────────────────
 
+def _generate_ai_insights(expenses, monthly_data, category_data, member_data, currency_data, groups):
+    """Generate deterministic AI insights from real expense data."""
+    insights = []
+    today = date.today()
+    this_month = today.strftime('%Y-%m')
+    last_month = (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m')
+
+    # 1. Top category change
+    if category_data:
+        top_cat = max(category_data, key=category_data.get)
+        top_val = category_data[top_cat]
+        total = sum(category_data.values())
+        pct = (top_val / total * 100) if total > 0 else 0
+        insights.append({
+            'icon': 'bi-pie-chart-fill',
+            'color': '#f97316',
+            'text': f"{top_cat} is your top spending category at {pct:.0f}% of total expenses."
+        })
+
+    # 2. Monthly comparison
+    this_val = float(monthly_data.get(this_month, 0))
+    last_val = float(monthly_data.get(last_month, 0))
+    if last_val > 0 and this_val > 0:
+        change = ((this_val - last_val) / last_val) * 100
+        direction = 'increased' if change > 0 else 'decreased'
+        insights.append({
+            'icon': 'bi-graph-up-arrow' if change > 0 else 'bi-graph-down-arrow',
+            'color': '#ef4444' if change > 0 else '#22c55e',
+            'text': f"Spending {direction} by {abs(change):.0f}% compared to last month."
+        })
+    elif this_val > 0:
+        insights.append({
+            'icon': 'bi-calendar-check',
+            'color': '#3b82f6',
+            'text': f"You've spent ₹{this_val:,.0f} so far this month."
+        })
+
+    # 3. Top spender
+    if member_data:
+        top_member = max(member_data, key=member_data.get)
+        insights.append({
+            'icon': 'bi-person-fill-up',
+            'color': '#a855f7',
+            'text': f"{top_member} is the highest contributor with ₹{float(member_data[top_member]):,.0f} paid."
+        })
+
+    # 4. Foreign currency usage
+    total_currency_count = sum(float(v) for v in currency_data.values())
+    foreign_count = sum(float(v) for k, v in currency_data.items() if k != 'INR')
+    if total_currency_count > 0 and foreign_count > 0:
+        foreign_pct = (foreign_count / total_currency_count) * 100
+        insights.append({
+            'icon': 'bi-currency-exchange',
+            'color': '#0d9488',
+            'text': f"Foreign currency expenses account for {foreign_pct:.0f}% of all transactions."
+        })
+
+    # 5. Recent member activity
+    recent_memberships = Membership.objects.filter(
+        group__in=groups,
+        join_date__gte=timezone.now() - timedelta(days=30),
+        status='active'
+    ).select_related('user', 'group')
+    if recent_memberships.exists():
+        m = recent_memberships.first()
+        insights.append({
+            'icon': 'bi-person-plus-fill',
+            'color': '#22c55e',
+            'text': f"{m.user.get_full_name() or m.user.email} joined '{m.group.name}' recently."
+        })
+
+    # 6. Highest spend month ever
+    if monthly_data:
+        peak_month_key = max(monthly_data, key=monthly_data.get)
+        peak_val = float(monthly_data[peak_month_key])
+        peak_label = datetime.strptime(peak_month_key, '%Y-%m').strftime('%B %Y')
+        insights.append({
+            'icon': 'bi-trophy-fill',
+            'color': '#eab308',
+            'text': f"Highest spending was in {peak_label} at ₹{peak_val:,.0f}."
+        })
+
+    # 7. Import summary
+    csv_count = CSVImport.objects.filter(group__in=groups, status='completed').count()
+    pdf_count = PDFImport.objects.filter(group__in=groups, status='completed').count()
+    if csv_count > 0 or pdf_count > 0:
+        parts = []
+        if csv_count: parts.append(f"{csv_count} CSV")
+        if pdf_count: parts.append(f"{pdf_count} PDF")
+        insights.append({
+            'icon': 'bi-cloud-upload-fill',
+            'color': '#64748b',
+            'text': f"You've completed {' and '.join(parts)} import(s) across your groups."
+        })
+
+    return insights
+
+
 @login_required
 def analytics_view(request):
-    """Backend processor for user spend analytics, category, member share charts."""
+    """Backend processor for user spend analytics, category, member share charts, heatmap, AI insights."""
     user = request.user
     memberships = Membership.objects.filter(user=user, status='active', group__is_deleted=False)
     groups = [m.group for m in memberships]
-    
+
     # Non-deleted expenses involving or paid in the groups
     cycles = ExpenseCycle.objects.filter(group__in=groups)
     expenses = Expense.objects.filter(cycle__in=cycles, is_deleted=False)
-    
-    from collections import defaultdict
+
     monthly_data = defaultdict(Decimal)
     category_data = defaultdict(Decimal)
     member_data = defaultdict(Decimal)
     currency_data = defaultdict(Decimal)
-    
+    daily_spend = defaultdict(Decimal)  # for heatmap
+
     for exp in expenses:
         inr_val = exp.converted_inr_value
-        
+
         # Monthly aggregate
         month_str = exp.date.strftime('%Y-%m')
         monthly_data[month_str] += inr_val
-        
+
         # Category aggregate
         category_data[exp.category] += inr_val
-        
+
         # Currency count
         currency_data[exp.currency] += Decimal('1')
-        
+
         # Total member contribution
         member_data[exp.paid_by.get_full_name() or exp.paid_by.email] += inr_val
-        
+
+        # Daily spend for heatmap (last 12 weeks)
+        day_str = exp.date.strftime('%Y-%m-%d')
+        daily_spend[day_str] += inr_val
+
     # Sort monthly spent
     sorted_months = sorted(monthly_data.keys())
     monthly_labels = [datetime.strptime(m, '%Y-%m').strftime('%b %Y') for m in sorted_months]
     monthly_values = [float(monthly_data[m]) for m in sorted_months]
-    
+
     cat_labels = list(category_data.keys())
     cat_values = [float(category_data[k]) for k in cat_labels]
-    
+
     curr_labels = list(currency_data.keys())
     curr_values = [float(currency_data[k]) for k in curr_labels]
-    
+
     sorted_members = sorted(member_data.items(), key=lambda x: x[1], reverse=True)[:10]
     member_labels = [item[0] for item in sorted_members]
     member_values = [float(item[1]) for item in sorted_members]
-    
+
+    # ── Heatmap data: last 84 days (12 weeks) ──
+    today = date.today()
+    heatmap_data = []
+    for i in range(83, -1, -1):
+        d = today - timedelta(days=i)
+        day_key = d.strftime('%Y-%m-%d')
+        heatmap_data.append({
+            'date': day_key,
+            'weekday': d.strftime('%a'),
+            'value': float(daily_spend.get(day_key, 0)),
+        })
+
+    # ── AI Insights ──
+    ai_insights = _generate_ai_insights(
+        expenses, monthly_data, category_data, member_data, currency_data, groups
+    )
+
+    # ── Import summaries ──
+    csv_imports = CSVImport.objects.filter(group__in=groups).order_by('-uploaded_at')[:5]
+    pdf_imports = PDFImport.objects.filter(group__in=groups).order_by('-uploaded_at')[:5]
+
     context = {
         'monthly_labels': json.dumps(monthly_labels),
         'monthly_values': json.dumps(monthly_values),
@@ -1402,6 +1531,10 @@ def analytics_view(request):
         'member_values': json.dumps(member_values),
         'trend_labels': json.dumps(monthly_labels),
         'trend_values': json.dumps(monthly_values),
+        'heatmap_data': json.dumps(heatmap_data),
+        'ai_insights': ai_insights,
+        'csv_imports': csv_imports,
+        'pdf_imports': pdf_imports,
         'current_page': 'analytics',
     }
     return render(request, 'splitly/analytics.html', context)
@@ -1441,6 +1574,188 @@ def clear_all_notifications(request):
     request.user.notifications.all().delete()
     messages.success(request, "Notifications history cleared.")
     return redirect('splitly:notifications_view')
+
+
+# ── PDF Import Pipeline ────────────────────────────────────────────────────────
+
+@login_required
+def pdf_import_upload(request, group_id):
+    """Step 1: Upload a PDF file for AI-powered expense extraction."""
+    group = get_object_or_404(Group, id=group_id, is_deleted=False, is_archived=False)
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
+        return HttpResponseForbidden('Access denied.')
+
+    if request.method == 'POST':
+        form = PDFImportUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            pdf_file = form.cleaned_data['pdf_file']
+            try:
+                extracted_text = parse_pdf(pdf_file)
+                rows = extract_expenses_from_text(extracted_text)
+            except ValueError as e:
+                messages.error(request, str(e))
+                return render(request, 'splitly/pdf_import_upload.html', {'form': form, 'group': group})
+
+            if not rows:
+                messages.warning(request, "No expense entries could be extracted from this PDF. "
+                                          "The document may not contain recognisable financial data.")
+                return render(request, 'splitly/pdf_import_upload.html', {'form': form, 'group': group})
+
+            # Save session
+            session = PDFImport.objects.create(
+                group=group,
+                uploaded_by=request.user,
+                file_name=pdf_file.name,
+                status='pending',
+                extracted_text=extracted_text[:50000],  # truncate safety
+            )
+            # Save PDF file
+            session.file.save(pdf_file.name, ContentFile(pdf_file.read()))
+            session.save()
+
+            # Validate + annotate rows
+            validate_pdf_rows(session, rows, group)
+
+            messages.info(
+                request,
+                f"PDF uploaded: {session.total_rows} expense(s) extracted by AI. "
+                f"{session.valid_rows} valid, {session.invalid_rows} need review."
+            )
+            return redirect('splitly:pdf_import_review', group_id=group.id, session_id=session.id)
+    else:
+        form = PDFImportUploadForm()
+
+    past_imports = PDFImport.objects.filter(group=group, uploaded_by=request.user).order_by('-uploaded_at')[:10]
+    return render(request, 'splitly/pdf_import_upload.html', {
+        'form': form,
+        'group': group,
+        'past_imports': past_imports,
+        'current_page': 'groups',
+    })
+
+
+@login_required
+def pdf_import_review(request, group_id, session_id):
+    """Step 2: Display extracted rows for user verification before importing."""
+    group = get_object_or_404(Group, id=group_id, is_deleted=False)
+    session = get_object_or_404(PDFImport, id=session_id, group=group)
+
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
+        return HttpResponseForbidden('Access denied.')
+
+    if session.status == 'completed':
+        return redirect('splitly:pdf_import_report', group_id=group.id, session_id=session.id)
+
+    rows = session.pdf_rows.all()
+    anomaly_rows = rows.filter(status='anomaly')
+    valid_rows = rows.filter(status='valid')
+    pending_decisions = anomaly_rows.filter(user_decision='pending').count()
+
+    return render(request, 'splitly/pdf_import_review.html', {
+        'group': group,
+        'session': session,
+        'valid_rows': valid_rows,
+        'anomaly_rows': anomaly_rows,
+        'pending_decisions': pending_decisions,
+        'current_page': 'groups',
+    })
+
+
+@login_required
+@require_POST
+def pdf_import_decide(request, group_id, session_id):
+    """AJAX/POST endpoint: record approve/reject for a single extracted row."""
+    group = get_object_or_404(Group, id=group_id, is_deleted=False)
+    session = get_object_or_404(PDFImport, id=session_id, group=group)
+
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
+        return JsonResponse({'error': 'Access denied'}, status=403)
+
+    row_id = request.POST.get('row_id')
+    decision = request.POST.get('decision')
+    note = request.POST.get('note', '')
+
+    if decision not in ('approve', 'reject'):
+        return JsonResponse({'error': 'Invalid decision'}, status=400)
+
+    try:
+        row = ImportLog.objects.get(id=row_id, pdf_import_session=session)
+        row.user_decision = decision
+        row.decision_note = note
+        row.save()
+        pending = session.pdf_rows.filter(status='anomaly', user_decision='pending').count()
+        return JsonResponse({'ok': True, 'pending': pending})
+    except ImportLog.DoesNotExist:
+        return JsonResponse({'error': 'Row not found'}, status=404)
+
+
+@login_required
+@require_POST
+def pdf_import_execute(request, group_id, session_id):
+    """Step 3: Execute import — commit all approved extracted rows."""
+    group = get_object_or_404(Group, id=group_id, is_deleted=False)
+    session = get_object_or_404(PDFImport, id=session_id, group=group)
+
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
+        return HttpResponseForbidden('Access denied.')
+
+    if session.status == 'completed':
+        messages.warning(request, 'This import has already been executed.')
+        return redirect('splitly:pdf_import_report', group_id=group.id, session_id=session.id)
+
+    # Check all anomalies are decided
+    pending = session.pdf_rows.filter(status='anomaly', user_decision='pending').count()
+    if pending > 0:
+        messages.error(request, f'{pending} flagged row(s) still need your decision before importing.')
+        return redirect('splitly:pdf_import_review', group_id=group.id, session_id=session.id)
+
+    try:
+        summary = execute_pdf_import(session, request.user)
+
+        AuditLog.objects.create(
+            user=request.user,
+            action='pdf_imported',
+            description=f"PDF '{session.file_name}' imported to group '{group.name}': "
+                        f"{summary['imported']} items imported."
+        )
+        active_members = group.get_active_members()
+        for member in active_members:
+            if member != request.user:
+                Notification.objects.create(
+                    user=member,
+                    notification_type='pdf_imported',
+                    title='PDF Import Completed',
+                    message=f"A PDF expense file '{session.file_name}' was imported into "
+                            f"group '{group.name}' by {request.user.email}."
+                )
+
+        messages.success(
+            request,
+            f"PDF import complete! {summary['imported']} expense(s) imported, "
+            f"{summary['skipped']} row(s) skipped."
+        )
+    except Exception as e:
+        messages.error(request, f'Import failed: {e}')
+        return redirect('splitly:pdf_import_review', group_id=group.id, session_id=session.id)
+
+    return redirect('splitly:pdf_import_report', group_id=group.id, session_id=session.id)
+
+
+@login_required
+def pdf_import_report(request, group_id, session_id):
+    """Step 4: Post-import summary report."""
+    group = get_object_or_404(Group, id=group_id, is_deleted=False)
+    session = get_object_or_404(PDFImport, id=session_id, group=group)
+
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
+        return HttpResponseForbidden('Access denied.')
+
+    report = build_pdf_report(session)
+    return render(request, 'splitly/pdf_import_report.html', {
+        'group': group,
+        'report': report,
+        'current_page': 'groups',
+    })
 
 
 @login_required

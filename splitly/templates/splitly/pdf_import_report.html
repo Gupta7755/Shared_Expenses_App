@@ -1,0 +1,140 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}PDF Import Report — {{ group.name }} — Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-chevron-left"></i> Back to {{ group.name }}
+    </a>
+</div>
+
+<div class="custom-card mb-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div>
+            <h1 class="h2 fw-bold text-dark m-0">
+                <i class="bi bi-clipboard-check text-success me-2"></i>PDF Import Report
+            </h1>
+            <p class="text-muted mt-1 mb-0">
+                Summary for <strong>{{ report.session.file_name }}</strong> — Imported on {{ report.session.uploaded_at|date:"M j, Y H:i" }}
+            </p>
+        </div>
+        <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Completed</span>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="row g-3 mb-4">
+        <div class="col-6 col-md-2">
+            <div class="border rounded-3 p-3 text-center bg-light">
+                <div class="h3 fw-bold text-dark mb-0">{{ report.total_rows }}</div>
+                <div class="text-muted small">Extracted</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded-3 p-3 text-center bg-light">
+                <div class="h3 fw-bold text-success mb-0">{{ report.valid_rows }}</div>
+                <div class="text-muted small">Valid</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-2">
+            <div class="border rounded-3 p-3 text-center bg-light">
+                <div class="h3 fw-bold text-warning mb-0">{{ report.invalid_rows }}</div>
+                <div class="text-muted small">Flagged</div>
+            </div>
+        </div>
+        <div class="col-6 col-md-3">
+            <div class="border rounded-3 p-3 text-center" style="background:#ecfdf5;">
+                <div class="h3 fw-bold text-success mb-0">{{ report.imported_rows }}</div>
+                <div class="text-muted small fw-semibold">Imported ✓</div>
+            </div>
+        </div>
+        <div class="col-12 col-md-3">
+            <div class="border rounded-3 p-3 text-center" style="background:#fff7ed;">
+                <div class="h3 fw-bold text-warning mb-0">{{ report.skipped_rows }}</div>
+                <div class="text-muted small">Skipped</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Imported Rows -->
+{% if report.imported_list %}
+<div class="custom-card mb-4">
+    <h3 class="card-title-custom mb-3">
+        <i class="bi bi-check-circle text-success"></i> Successfully Imported ({{ report.imported_list.count }})
+    </h3>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr class="table-light">
+                    <th>#</th>
+                    <th>Title</th>
+                    <th>Amount</th>
+                    <th>Date</th>
+                    <th>Category</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in report.imported_list %}
+                <tr>
+                    <td class="text-muted">{{ row.row_number }}</td>
+                    <td class="fw-semibold text-dark">{{ row.raw_data.title|truncatechars:50 }}</td>
+                    <td class="fw-bold text-success">{{ row.raw_data.currency|default:"INR" }} {{ row.raw_data.amount }}</td>
+                    <td class="text-muted small">{{ row.raw_data.date }}</td>
+                    <td>
+                        <span class="badge bg-light text-dark">{{ row.raw_data.category|default:"Other" }}</span>
+                        {% if row.raw_data.ai_suggested_category %}
+                        <span class="badge bg-primary bg-opacity-10 text-primary ms-1">
+                            <i class="bi bi-cpu"></i> {{ row.raw_data.ai_suggested_category }}
+                        </span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Skipped Rows -->
+{% if report.skipped_list %}
+<div class="custom-card mb-4">
+    <h3 class="card-title-custom mb-3">
+        <i class="bi bi-skip-forward text-warning"></i> Skipped ({{ report.skipped_list.count }})
+    </h3>
+    <div class="d-flex flex-column gap-2">
+        {% for row in report.skipped_list %}
+        <div class="border rounded-3 p-3 bg-light">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <span class="badge bg-warning bg-opacity-10 text-warning me-1">{{ row.anomaly_type }}</span>
+                    <strong class="text-dark">Row {{ row.row_number }}:</strong>
+                    {{ row.raw_data.title|default:"—"|truncatechars:50 }}
+                </div>
+                <span class="text-muted small">{{ row.raw_data.currency|default:"INR" }} {{ row.raw_data.amount|default:"—" }}</span>
+            </div>
+            {% if row.anomaly_explanation %}
+            <div class="text-muted small mt-1">{{ row.anomaly_explanation }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Actions -->
+<div class="custom-card">
+    <div class="d-flex gap-3 flex-wrap">
+        <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-primary-custom">
+            <i class="bi bi-arrow-left me-1"></i> Back to Group
+        </a>
+        <a href="{% url 'splitly:pdf_import_upload' group.id %}" class="btn btn-outline-primary">
+            <i class="bi bi-plus-circle me-1"></i> Import Another PDF
+        </a>
+        <a href="{% url 'splitly:expense_list' %}" class="btn btn-outline-secondary">
+            <i class="bi bi-receipt me-1"></i> View All Expenses
+        </a>
+    </div>
+</div>
+{% endblock %}

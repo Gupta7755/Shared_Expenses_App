@@ -152,6 +152,9 @@ class Expense(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_deleted = models.BooleanField(default=False)
     imported_from_csv = models.BooleanField(default=False)
+    imported_from_pdf = models.BooleanField(default=False)
+    ai_suggested_category = models.CharField(max_length=20, blank=True, null=True,
+                                              help_text="Category suggested by AI extraction engine")
 
     class Meta:
         ordering = ['-date', '-created_at']
@@ -239,6 +242,34 @@ class CSVImport(models.Model):
         return f"Import '{self.file_name}' for {self.group.name} ({self.status})"
 
 
+class PDFImport(models.Model):
+    """Tracks each PDF expense import session."""
+    STATUS_CHOICES = [
+        ('pending', 'Pending Review'),
+        ('reviewing', 'Under Review'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+    group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name='pdf_imports')
+    uploaded_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='pdf_imports')
+    file_name = models.CharField(max_length=255)
+    file = models.FileField(upload_to='pdf_imports/', blank=True, null=True)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='pending')
+    extracted_text = models.TextField(blank=True, help_text="Full text extracted from PDF")
+    total_rows = models.IntegerField(default=0)
+    valid_rows = models.IntegerField(default=0)
+    invalid_rows = models.IntegerField(default=0)
+    imported_rows = models.IntegerField(default=0)
+    skipped_rows = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['-uploaded_at']
+
+    def __str__(self):
+        return f"PDF Import '{self.file_name}' for {self.group.name} ({self.status})"
+
+
 class ImportLog(models.Model):
     STATUS_CHOICES = [
         ('valid', 'Valid'),
@@ -265,7 +296,11 @@ class ImportLog(models.Model):
         ('approve', 'Approved'),
         ('reject', 'Rejected'),
     ]
-    import_session = models.ForeignKey(CSVImport, on_delete=models.CASCADE, related_name='rows')
+    import_session = models.ForeignKey(CSVImport, on_delete=models.CASCADE, related_name='rows',
+                                        null=True, blank=True)
+    pdf_import_session = models.ForeignKey('PDFImport', on_delete=models.CASCADE,
+                                            related_name='pdf_rows', null=True, blank=True)
+    source = models.CharField(max_length=5, choices=[('csv', 'CSV'), ('pdf', 'PDF')], default='csv')
     row_number = models.IntegerField()
     raw_data = models.JSONField()
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='valid')
@@ -326,6 +361,7 @@ class AuditLog(models.Model):
         ('member_joined', 'Member Joined'),
         ('member_left', 'Member Left'),
         ('csv_imported', 'CSV Imported'),
+        ('pdf_imported', 'PDF Imported'),
         ('pdf_generated', 'PDF Generated'),
     ]
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='audit_logs')
@@ -349,6 +385,7 @@ class Notification(models.Model):
         ('member_joined', 'Member Joined'),
         ('member_left', 'Member Left'),
         ('csv_imported', 'CSV Imported'),
+        ('pdf_imported', 'PDF Imported'),
         ('report_generated', 'Report Generated'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')

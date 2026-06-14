@@ -15,6 +15,28 @@
     </div>
 </div>
 
+<!-- AI Insights Panel -->
+{% if ai_insights %}
+<div class="custom-card mb-4" style="border-left: 4px solid #6366f1;">
+    <div class="card-header-flex mb-3">
+        <h2 class="card-title-custom">
+            <i class="bi bi-stars text-primary"></i> AI Insights
+        </h2>
+        <span class="badge bg-primary bg-opacity-10 text-primary">Powered by Analytics Engine</span>
+    </div>
+    <div class="row g-2">
+        {% for insight in ai_insights %}
+        <div class="col-md-6">
+            <div class="d-flex align-items-start gap-2 p-2 rounded" style="background: rgba(99, 102, 241, 0.04);">
+                <i class="bi {{ insight.icon }}" style="color: {{ insight.color }}; font-size: 1.1rem; flex-shrink: 0; margin-top: 2px;"></i>
+                <span class="text-dark small">{{ insight.text }}</span>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
 <div class="row g-4 mb-4">
     <!-- Spending Trends / Monthly Expenses Chart -->
     <div class="col-lg-8">
@@ -45,7 +67,37 @@
     </div>
 </div>
 
-<div class="row g-4">
+<!-- Spending Heatmap -->
+<div class="custom-card mb-4">
+    <div class="card-header-flex mb-3">
+        <h2 class="card-title-custom">
+            <i class="bi bi-calendar-event text-danger"></i> Spending Heatmap (Last 12 Weeks)
+        </h2>
+    </div>
+    <div class="d-flex align-items-start gap-1" style="overflow-x: auto; padding-bottom: 8px;">
+        <div class="d-flex flex-column gap-0 me-1" style="min-width:28px; padding-top: 16px;">
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;">Mon</div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;"></div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;">Wed</div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;"></div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;">Fri</div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;"></div>
+            <div style="height:14px; line-height:14px; font-size:9px; color:#94a3b8;">Sun</div>
+        </div>
+        <div id="heatmap-grid" class="d-flex gap-1"></div>
+    </div>
+    <div class="d-flex align-items-center gap-2 mt-2">
+        <span class="text-muted" style="font-size:10px;">Less</span>
+        <div style="width:12px; height:12px; background:#ebedf0; border-radius:2px;"></div>
+        <div style="width:12px; height:12px; background:#9be9a8; border-radius:2px;"></div>
+        <div style="width:12px; height:12px; background:#40c463; border-radius:2px;"></div>
+        <div style="width:12px; height:12px; background:#30a14e; border-radius:2px;"></div>
+        <div style="width:12px; height:12px; background:#216e39; border-radius:2px;"></div>
+        <span class="text-muted" style="font-size:10px;">More</span>
+    </div>
+</div>
+
+<div class="row g-4 mb-4">
     <!-- Member Contributions -->
     <div class="col-lg-7">
         <div class="custom-card h-100">
@@ -75,6 +127,62 @@
     </div>
 </div>
 
+<!-- Import Summaries -->
+{% if csv_imports or pdf_imports %}
+<div class="row g-4">
+    {% if csv_imports %}
+    <div class="col-md-6">
+        <div class="custom-card">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-filetype-csv text-success"></i> Recent CSV Imports
+            </h3>
+            <div class="d-flex flex-column gap-2">
+                {% for imp in csv_imports %}
+                <div class="d-flex justify-content-between align-items-center border rounded p-2 bg-light">
+                    <div>
+                        <span class="fw-semibold text-dark small">{{ imp.file_name|truncatechars:30 }}</span>
+                        <div class="text-muted" style="font-size:11px;">{{ imp.uploaded_at|date:"M j, Y" }} • {{ imp.group.name }}</div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge {% if imp.status == 'completed' %}bg-success bg-opacity-10 text-success{% else %}bg-warning bg-opacity-10 text-warning{% endif %}">
+                            {{ imp.status|capfirst }}
+                        </span>
+                        <div class="text-muted" style="font-size:10px;">{{ imp.imported_rows }} imported</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if pdf_imports %}
+    <div class="col-md-6">
+        <div class="custom-card">
+            <h3 class="card-title-custom mb-3">
+                <i class="bi bi-file-earmark-pdf text-danger"></i> Recent PDF Imports
+            </h3>
+            <div class="d-flex flex-column gap-2">
+                {% for imp in pdf_imports %}
+                <div class="d-flex justify-content-between align-items-center border rounded p-2 bg-light">
+                    <div>
+                        <span class="fw-semibold text-dark small">{{ imp.file_name|truncatechars:30 }}</span>
+                        <div class="text-muted" style="font-size:11px;">{{ imp.uploaded_at|date:"M j, Y" }} • {{ imp.group.name }}</div>
+                    </div>
+                    <div class="text-end">
+                        <span class="badge {% if imp.status == 'completed' %}bg-success bg-opacity-10 text-success{% else %}bg-warning bg-opacity-10 text-warning{% endif %}">
+                            {{ imp.status|capfirst }}
+                        </span>
+                        <div class="text-muted" style="font-size:10px;">{{ imp.imported_rows }} imported</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- Chart.js CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -83,16 +191,18 @@
         // Load JSON data passed from Django backend
         const monthlyLabels = {{ monthly_labels|safe }};
         const monthlyValues = {{ monthly_values|safe }};
-        
+
         const catLabels = {{ cat_labels|safe }};
         const catValues = {{ cat_values|safe }};
-        
+
         const currLabels = {{ curr_labels|safe }};
         const currValues = {{ curr_values|safe }};
-        
+
         const memberLabels = {{ member_labels|safe }};
         const memberValues = {{ member_values|safe }};
-        
+
+        const heatmapData = {{ heatmap_data|safe }};
+
         // 1. Monthly Trends Chart (Line Chart)
         const ctxMonthly = document.getElementById('monthlyTrendChart').getContext('2d');
         new Chart(ctxMonthly, {
@@ -133,8 +243,8 @@
         // 2. Category Share Chart (Doughnut Chart)
         const ctxCat = document.getElementById('categoryChart').getContext('2d');
         const catColors = [
-            '#f97316', '#22c55e', '#3b82f6', '#a855f7', 
-            '#eab308', '#ec4899', '#0d9488', '#d97706', 
+            '#f97316', '#22c55e', '#3b82f6', '#a855f7',
+            '#eab308', '#ec4899', '#0d9488', '#d97706',
             '#ef4444', '#64748b'
         ];
         new Chart(ctxCat, {
@@ -220,6 +330,46 @@
                 }
             }
         });
+
+        // 5. Spending Heatmap (GitHub-style)
+        const grid = document.getElementById('heatmap-grid');
+        if (grid && heatmapData.length > 0) {
+            // Find max for color scaling
+            const maxVal = Math.max(...heatmapData.map(d => d.value), 1);
+
+            // Group by week (columns of 7 days)
+            const weeks = [];
+            let currentWeek = [];
+            for (let i = 0; i < heatmapData.length; i++) {
+                currentWeek.push(heatmapData[i]);
+                if (currentWeek.length === 7) {
+                    weeks.push(currentWeek);
+                    currentWeek = [];
+                }
+            }
+            if (currentWeek.length > 0) weeks.push(currentWeek);
+
+            weeks.forEach(function(week) {
+                const col = document.createElement('div');
+                col.className = 'd-flex flex-column gap-0';
+
+                week.forEach(function(day) {
+                    const cell = document.createElement('div');
+                    const ratio = day.value / maxVal;
+                    let color = '#ebedf0';
+                    if (ratio > 0.8) color = '#216e39';
+                    else if (ratio > 0.5) color = '#30a14e';
+                    else if (ratio > 0.25) color = '#40c463';
+                    else if (ratio > 0) color = '#9be9a8';
+
+                    cell.style.cssText = `width:13px; height:13px; border-radius:2px; background:${color}; cursor:pointer;`;
+                    cell.title = `${day.date} (${day.weekday}): ₹${day.value.toLocaleString()}`;
+                    col.appendChild(cell);
+                });
+
+                grid.appendChild(col);
+            });
+        }
     });
 </script>
 {% endblock %}

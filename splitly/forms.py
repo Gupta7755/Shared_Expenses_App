@@ -1,6 +1,6 @@
 from django import forms
 
-from splitly.models import User, Group, Expense, Settlement, Currency, CSVImport, SUPPORTED_CURRENCIES
+from splitly.models import User, Group, Expense, Settlement, Currency, CSVImport, PDFImport, SUPPORTED_CURRENCIES
 
 class CustomUserCreationForm(forms.ModelForm):
     full_name = forms.CharField(max_length=150, required=True, label="Full Name",
@@ -125,6 +125,24 @@ class CSVImportUploadForm(forms.Form):
             raise forms.ValidationError('Only .csv files are accepted.')
         if f.size > 5 * 1024 * 1024:  # 5 MB limit
             raise forms.ValidationError('File size must not exceed 5 MB.')
+        return f
+
+
+class PDFImportUploadForm(forms.Form):
+    """File upload form for PDF expense import."""
+    pdf_file = forms.FileField(
+        label='PDF File',
+        widget=forms.FileInput(attrs={'class': 'form-control', 'accept': '.pdf'}),
+        help_text='Upload a PDF bank statement, receipt collection, or expense report. '
+                  'The AI engine will extract expense entries automatically.'
+    )
+
+    def clean_pdf_file(self):
+        f = self.cleaned_data['pdf_file']
+        if not f.name.lower().endswith('.pdf'):
+            raise forms.ValidationError('Only .pdf files are accepted.')
+        if f.size > 20 * 1024 * 1024:  # 20 MB limit
+            raise forms.ValidationError('File size must not exceed 20 MB.')
         return f
 
 

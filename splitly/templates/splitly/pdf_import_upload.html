@@ -1,0 +1,165 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}PDF Import — {{ group.name }} — Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-chevron-left"></i> Back to {{ group.name }}
+    </a>
+</div>
+
+<div class="custom-card mb-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+        <div>
+            <h1 class="h2 fw-bold text-dark m-0">
+                <i class="bi bi-file-earmark-pdf text-danger me-2"></i>PDF Expense Import
+            </h1>
+            <p class="text-muted mt-1 mb-0">
+                Upload a PDF bank statement, receipt collection, or expense report.
+                Our <span class="badge bg-primary bg-opacity-10 text-primary">AI Engine</span> will automatically extract expense entries.
+            </p>
+        </div>
+    </div>
+
+    <!-- Upload Form -->
+    <form method="POST" enctype="multipart/form-data" class="mb-4">
+        {% csrf_token %}
+        <div class="border rounded-3 p-4 bg-light text-center" id="pdf-drop-zone" style="border-style: dashed !important; border-color: #ccc; cursor: pointer; transition: all 0.2s;">
+            <i class="bi bi-cloud-arrow-up" style="font-size: 48px; color: #6366f1;"></i>
+            <p class="fw-semibold text-dark mt-2 mb-1">Drop your PDF file here or click to browse</p>
+            <p class="text-muted small mb-3">Supports bank statements, expense reports, and receipt collections (max 20 MB)</p>
+            {{ form.pdf_file }}
+        </div>
+        {% if form.pdf_file.errors %}
+            <div class="text-danger small mt-2">{{ form.pdf_file.errors }}</div>
+        {% endif %}
+
+        <div class="mt-3 d-flex gap-2">
+            <button type="submit" class="btn btn-primary-custom">
+                <i class="bi bi-cpu me-1"></i> Upload & Extract with AI
+            </button>
+            <a href="{% url 'splitly:csv_import_upload' group.id %}" class="btn btn-outline-secondary">
+                <i class="bi bi-filetype-csv me-1"></i> Use CSV Import Instead
+            </a>
+        </div>
+    </form>
+
+    <!-- How It Works -->
+    <div class="border rounded-3 p-3 bg-light">
+        <h5 class="fw-bold text-dark mb-3"><i class="bi bi-lightbulb text-warning me-2"></i>How AI Extraction Works</h5>
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="rounded-circle bg-primary bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-2" style="width:48px;height:48px;">
+                        <i class="bi bi-file-earmark-pdf text-primary" style="font-size:20px;"></i>
+                    </div>
+                    <p class="fw-semibold small mb-0 text-dark">1. Upload PDF</p>
+                    <p class="text-muted small mb-0">Bank statement or expense report</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="rounded-circle bg-success bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-2" style="width:48px;height:48px;">
+                        <i class="bi bi-cpu text-success" style="font-size:20px;"></i>
+                    </div>
+                    <p class="fw-semibold small mb-0 text-dark">2. AI Extracts</p>
+                    <p class="text-muted small mb-0">Amounts, dates, categories detected</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="rounded-circle bg-warning bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-2" style="width:48px;height:48px;">
+                        <i class="bi bi-person-check text-warning" style="font-size:20px;"></i>
+                    </div>
+                    <p class="fw-semibold small mb-0 text-dark">3. You Verify</p>
+                    <p class="text-muted small mb-0">Review & approve extracted entries</p>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="text-center">
+                    <div class="rounded-circle bg-danger bg-opacity-10 d-inline-flex align-items-center justify-content-center mb-2" style="width:48px;height:48px;">
+                        <i class="bi bi-check-circle text-danger" style="font-size:20px;"></i>
+                    </div>
+                    <p class="fw-semibold small mb-0 text-dark">4. Import</p>
+                    <p class="text-muted small mb-0">Expenses added to your group</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if past_imports %}
+<div class="custom-card">
+    <h3 class="card-title-custom mb-3">
+        <i class="bi bi-clock-history"></i> Previous PDF Imports
+    </h3>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr class="table-light">
+                    <th>File</th>
+                    <th>Uploaded</th>
+                    <th>Rows</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for imp in past_imports %}
+                <tr>
+                    <td>
+                        <i class="bi bi-file-earmark-pdf text-danger me-1"></i>
+                        <span class="fw-semibold text-dark">{{ imp.file_name }}</span>
+                    </td>
+                    <td class="text-muted small">{{ imp.uploaded_at|date:"M j, Y H:i" }}</td>
+                    <td>
+                        <span class="text-success fw-semibold">{{ imp.valid_rows }}</span>/<span class="text-warning">{{ imp.invalid_rows }}</span>
+                    </td>
+                    <td>
+                        {% if imp.status == "completed" %}
+                            <span class="badge bg-success bg-opacity-10 text-success">Completed</span>
+                        {% elif imp.status == "pending" %}
+                            <span class="badge bg-warning bg-opacity-10 text-warning">Pending</span>
+                        {% else %}
+                            <span class="badge bg-secondary bg-opacity-10 text-secondary">{{ imp.status|capfirst }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if imp.status == "completed" %}
+                            <a href="{% url 'splitly:pdf_import_report' group.id imp.id %}" class="btn btn-xs btn-outline-primary">View Report</a>
+                        {% elif imp.status == "pending" %}
+                            <a href="{% url 'splitly:pdf_import_review' group.id imp.id %}" class="btn btn-xs btn-outline-warning">Resume</a>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<style>
+#pdf-drop-zone.drag-over {
+    background-color: #eef2ff !important;
+    border-color: #6366f1 !important;
+}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const zone = document.getElementById('pdf-drop-zone');
+    if (!zone) return;
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
+    zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
+    zone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        const input = zone.querySelector('input[type="file"]');
+        if (input && e.dataTransfer.files.length) {
+            input.files = e.dataTransfer.files;
+        }
+    });
+});
+</script>
+{% endblock %}

@@ -117,7 +117,7 @@
                                     {% if item.balance > 0 %}
                                         +${{ item.balance|floatformat:2 }}
                                     {% elif item.balance < 0 %}
-                                        -${{ item.balance|abs|floatformat:2 }}
+                                        -${{ item.abs_balance|floatformat:2 }}
                                     {% else %}
                                         $0.00
                                     {% endif %}

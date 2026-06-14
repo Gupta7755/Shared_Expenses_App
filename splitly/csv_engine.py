@@ -392,24 +392,15 @@ def _is_db_duplicate(raw: dict, group: Group) -> bool:
     title = raw.get('title', '').strip()
     amount_str = raw.get('amount', '0')
     date_val = _parse_date(raw.get('date', ''))
-    payer_email = raw.get('paid_by_email', '').strip().lower()
 
     if not date_val or not _is_valid_decimal(amount_str):
         return False
 
     try:
         amount = Decimal(amount_str)
-        payer = User.objects.get(email__iexact=payer_email)
-        cycles = group.cycles.all()
-        return Expense.objects.filter(
-            cycle__in=cycles,
-            title__iexact=title,
-            amount=amount,
-            date=date_val,
-            paid_by=payer,
-            is_deleted=False
-        ).exists()
-    except User.DoesNotExist:
+        from splitly.pdf_engine import detect_duplicates
+        return detect_duplicates(title, amount, date_val, group)
+    except Exception:
         return False
 
 

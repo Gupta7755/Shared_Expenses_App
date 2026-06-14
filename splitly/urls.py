@@ -70,6 +70,13 @@ urlpatterns = [
     path('groups/<int:group_id>/csv/decide/<int:session_id>/', views.csv_import_decide, name='csv_import_decide'),
     path('groups/<int:group_id>/csv/execute/<int:session_id>/', views.csv_import_execute, name='csv_import_execute'),
     path('groups/<int:group_id>/csv/report/<int:session_id>/', views.csv_import_report, name='csv_import_report'),
+
+    # PDF Import
+    path('groups/<int:group_id>/pdf/upload/', views.pdf_import_upload, name='pdf_import_upload'),
+    path('groups/<int:group_id>/pdf/review/<int:session_id>/', views.pdf_import_review, name='pdf_import_review'),
+    path('groups/<int:group_id>/pdf/decide/<int:session_id>/', views.pdf_import_decide, name='pdf_import_decide'),
+    path('groups/<int:group_id>/pdf/execute/<int:session_id>/', views.pdf_import_execute, name='pdf_import_execute'),
+    path('groups/<int:group_id>/pdf/report/<int:session_id>/', views.pdf_import_report, name='pdf_import_report'),
     
     # Balance Detail
     path('groups/<int:group_id>/balance-detail/', views.balance_detail, name='balance_detail'),

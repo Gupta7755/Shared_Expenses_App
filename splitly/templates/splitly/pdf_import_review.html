@@ -1,0 +1,239 @@
+{% extends 'splitly/base.html' %}
+
+{% block title %}Review PDF Import — {{ group.name }} — Splitly{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'splitly:group_detail' group.id %}" class="btn btn-sm btn-link text-decoration-none p-0 text-muted">
+        <i class="bi bi-chevron-left"></i> Back to {{ group.name }}
+    </a>
+</div>
+
+<div class="custom-card mb-4">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+            <h1 class="h2 fw-bold text-dark m-0">
+                <i class="bi bi-cpu text-primary me-2"></i>AI Extraction Review
+            </h1>
+            <p class="text-muted mt-1 mb-0">
+                <i class="bi bi-file-earmark-pdf text-danger me-1"></i>
+                <strong>{{ session.file_name }}</strong> —
+                {{ session.total_rows }} expense(s) extracted.
+                Review flagged items below before importing.
+            </p>
+        </div>
+        <div class="d-flex gap-2 align-items-center">
+            {% if pending_decisions > 0 %}
+                <span class="badge bg-warning text-dark"><i class="bi bi-exclamation-triangle me-1"></i>{{ pending_decisions }} pending decision(s)</span>
+            {% else %}
+                <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>All reviewed</span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Summary Stats -->
+<div class="row g-3 mb-4">
+    <div class="col-4 col-md-3">
+        <div class="custom-card text-center py-3">
+            <div class="h3 fw-bold text-primary mb-0">{{ session.total_rows }}</div>
+            <div class="text-muted small">Total Extracted</div>
+        </div>
+    </div>
+    <div class="col-4 col-md-3">
+        <div class="custom-card text-center py-3">
+            <div class="h3 fw-bold text-success mb-0">{{ valid_rows.count }}</div>
+            <div class="text-muted small">Valid</div>
+        </div>
+    </div>
+    <div class="col-4 col-md-3">
+        <div class="custom-card text-center py-3">
+            <div class="h3 fw-bold text-warning mb-0">{{ anomaly_rows.count }}</div>
+            <div class="text-muted small">Flagged</div>
+        </div>
+    </div>
+    <div class="col-12 col-md-3">
+        <div class="custom-card text-center py-3">
+            <div class="h3 fw-bold text-danger mb-0" id="pending-count">{{ pending_decisions }}</div>
+            <div class="text-muted small">Pending Decisions</div>
+        </div>
+    </div>
+</div>
+
+<!-- Anomaly Rows (need decisions) -->
+{% if anomaly_rows %}
+<div class="custom-card mb-4">
+    <h3 class="card-title-custom mb-3">
+        <i class="bi bi-exclamation-triangle text-warning"></i> Flagged Entries — Require Your Decision
+    </h3>
+    <div class="d-flex flex-column gap-3">
+        {% for row in anomaly_rows %}
+        <div class="border rounded-3 p-3 {% if row.user_decision == 'approve' %}border-success bg-success bg-opacity-10{% elif row.user_decision == 'reject' %}border-danger bg-danger bg-opacity-10{% else %}border-warning{% endif %}"
+             id="row-{{ row.id }}">
+            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                <div>
+                    <span class="badge bg-warning bg-opacity-10 text-warning me-1">{{ row.anomaly_type }}</span>
+                    <strong class="text-dark">Row {{ row.row_number }}:</strong>
+                    <span class="text-dark">{{ row.raw_data.title|default:"—" }}</span>
+                </div>
+                <div class="d-flex align-items-center gap-1">
+                    <span class="fw-bold text-primary">{{ row.raw_data.currency|default:"INR" }} {{ row.raw_data.amount|default:"0" }}</span>
+                    <span class="text-muted small ms-2">{{ row.raw_data.date|default:"—" }}</span>
+                </div>
+            </div>
+
+            <div class="text-muted small mb-2">
+                <i class="bi bi-info-circle me-1"></i>{{ row.anomaly_explanation }}
+            </div>
+            {% if row.suggested_action %}
+            <div class="text-muted small mb-2">
+                <i class="bi bi-lightbulb me-1 text-warning"></i><em>{{ row.suggested_action }}</em>
+            </div>
+            {% endif %}
+
+            {% if row.raw_data.ai_suggested_category %}
+            <div class="mb-2">
+                <span class="badge bg-primary bg-opacity-10 text-primary">
+                    <i class="bi bi-cpu me-1"></i>AI Category: {{ row.raw_data.ai_suggested_category }}
+                </span>
+            </div>
+            {% endif %}
+
+            {% if row.user_decision == 'pending' %}
+            <div class="d-flex gap-2 mt-2">
+                <button class="btn btn-sm btn-success decide-btn" data-row-id="{{ row.id }}" data-decision="approve" data-url="{% url 'splitly:pdf_import_decide' group.id session.id %}">
+                    <i class="bi bi-check-circle me-1"></i> Approve
+                </button>
+                <button class="btn btn-sm btn-danger decide-btn" data-row-id="{{ row.id }}" data-decision="reject" data-url="{% url 'splitly:pdf_import_decide' group.id session.id %}">
+                    <i class="bi bi-x-circle me-1"></i> Reject
+                </button>
+            </div>
+            {% else %}
+            <div class="mt-2">
+                {% if row.user_decision == 'approve' %}
+                    <span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Approved</span>
+                {% else %}
+                    <span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Rejected</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Valid Rows -->
+{% if valid_rows %}
+<div class="custom-card mb-4">
+    <h3 class="card-title-custom mb-3">
+        <i class="bi bi-check-circle text-success"></i> Valid Entries — Ready to Import
+    </h3>
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr class="table-light">
+                    <th>#</th>
+                    <th>Title</th>
+                    <th>Amount</th>
+                    <th>Date</th>
+                    <th>Category</th>
+                    <th>AI Category</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in valid_rows %}
+                <tr>
+                    <td class="text-muted">{{ row.row_number }}</td>
+                    <td class="fw-semibold text-dark">{{ row.raw_data.title|truncatechars:40 }}</td>
+                    <td class="fw-bold text-primary">{{ row.raw_data.currency|default:"INR" }} {{ row.raw_data.amount }}</td>
+                    <td class="text-muted small">{{ row.raw_data.date }}</td>
+                    <td><span class="badge bg-light text-dark">{{ row.raw_data.category|default:"Other" }}</span></td>
+                    <td>
+                        {% if row.raw_data.ai_suggested_category %}
+                            <span class="badge bg-primary bg-opacity-10 text-primary">
+                                <i class="bi bi-cpu me-1"></i>{{ row.raw_data.ai_suggested_category }}
+                            </span>
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Execute Import Button -->
+<div class="custom-card">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+        <div>
+            <h4 class="fw-bold text-dark mb-1">Ready to Import?</h4>
+            <p class="text-muted small mb-0">
+                All valid entries + approved anomalies will be imported as equal-split expenses
+                assigned to you as the payer. You can edit individual expenses after import.
+            </p>
+        </div>
+        <form method="POST" action="{% url 'splitly:pdf_import_execute' group.id session.id %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-primary-custom btn-lg"
+                {% if pending_decisions > 0 %}disabled title="Resolve all flagged items first"{% endif %}>
+                <i class="bi bi-database-fill-add me-1"></i> Import {{ valid_rows.count|add:0 }} Expense(s)
+            </button>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.decide-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const rowId = this.dataset.rowId;
+            const decision = this.dataset.decision;
+            const url = this.dataset.url;
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const row = document.getElementById('row-' + rowId);
+            const btnGroup = this.parentNode;
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': csrfToken,
+                },
+                body: `row_id=${rowId}&decision=${decision}`,
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.ok) {
+                    if (decision === 'approve') {
+                        row.classList.remove('border-warning');
+                        row.classList.add('border-success', 'bg-success', 'bg-opacity-10');
+                        btnGroup.innerHTML = '<span class="badge bg-success"><i class="bi bi-check-circle me-1"></i>Approved</span>';
+                    } else {
+                        row.classList.remove('border-warning');
+                        row.classList.add('border-danger', 'bg-danger', 'bg-opacity-10');
+                        btnGroup.innerHTML = '<span class="badge bg-danger"><i class="bi bi-x-circle me-1"></i>Rejected</span>';
+                    }
+                    // Update pending count
+                    const pendingEl = document.getElementById('pending-count');
+                    if (pendingEl) pendingEl.textContent = data.pending;
+
+                    // Enable import button if no pending
+                    if (data.pending === 0) {
+                        const importBtn = document.querySelector('button[type="submit"][disabled]');
+                        if (importBtn) {
+                            importBtn.disabled = false;
+                            importBtn.removeAttribute('title');
+                        }
+                    }
+                }
+            })
+            .catch(err => { alert('Error: ' + err); });
+        });
+    });
+});
+</script>
+{% endblock %}

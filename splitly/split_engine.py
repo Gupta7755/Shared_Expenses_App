@@ -232,3 +232,30 @@ def simplify_debts(balances):
             debtors.sort(key=lambda x: x[1], reverse=True)
             
     return transactions
+
+
+# ─── Auto Split Suggestion ────────────────────────────────────────────────────
+
+def suggest_split_type(payer, group) -> str:
+    """
+    Analyses the last 10 expenses paid by this user in this group
+    and returns the most frequently used split type as a suggestion.
+    Falls back to 'equal' if no history exists.
+    """
+    from splitly.models import Expense, ExpenseCycle
+    cycles = ExpenseCycle.objects.filter(group=group)
+    recent = (
+        Expense.objects
+        .filter(cycle__in=cycles, paid_by=payer, is_deleted=False)
+        .values_list('split_type', flat=True)
+        .order_by('-created_at')[:10]
+    )
+    if not recent:
+        return 'equal'
+
+    # Count occurrences
+    counts = {}
+    for st in recent:
+        counts[st] = counts.get(st, 0) + 1
+
+    return max(counts, key=counts.get)
