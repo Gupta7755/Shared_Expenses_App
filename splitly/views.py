@@ -1,27 +1,33 @@
+import io
+from decimal import Decimal
+import json
+from datetime import datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout, authenticate
-from django.contrib.auth.decorators import login_required
+from django.contrib.auth.decorators import login_required, user_passes_test
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib import messages
 from django.utils import timezone
-from django.db import transaction
+from django.db import transaction, models
 from django.core.exceptions import ValidationError
-from django.http import HttpResponseForbidden, JsonResponse
+from django.core.files.base import ContentFile
+from django.http import HttpResponseForbidden, JsonResponse, FileResponse
 from django.views.decorators.http import require_POST
 
-from decimal import Decimal
 from splitly.models import (
-    User, Group, GroupMembership, ExpenseCycle, ExpenseCycleMember,
-    Expense, ExpenseSplit, Settlement, ExchangeRate, CSVImport, CSVImportRow
+    User, Group, Membership, ExpenseCycle, ExpenseCycleMember,
+    Expense, ExpenseParticipant, Settlement, Currency, CSVImport, ImportLog,
+    PDFReport, AuditLog, Notification
 )
 from splitly.forms import (
     CustomUserCreationForm, UserProfileForm, GroupForm, ExpenseForm,
-    CSVImportUploadForm, SettlementForm, ExchangeRateForm
+    CSVImportUploadForm, SettlementForm, CurrencyForm
 )
 from splitly.split_engine import calculate_splits, calculate_cycle_balances, simplify_debts
 from splitly.balance_engine import get_group_balances, get_simple_balances, simplify_debts as simplify
-from splitly.currency import convert_to_inr, get_rate, get_all_rates, seed_default_rates, format_currency, SUPPORTED_CURRENCIES
+from splitly.currency import convert_to_inr, convert_from_inr, get_rate, get_all_rates, seed_default_rates, format_currency, SUPPORTED_CURRENCIES
 from splitly.csv_engine import parse_csv, validate_rows, execute_import, build_report
-from splitly.reports import generate_expenses_csv, generate_group_pdf_report
+from splitly.reports import generate_expenses_csv, generate_group_pdf_report, generate_individual_pdf_report
 
 def landing(request):
     if request.user.is_authenticated:
@@ -37,6 +43,17 @@ def signup_view(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
+            AuditLog.objects.create(
+                user=user, 
+                action='login', 
+                description=f"New user {user.email} signed up and logged in."
+            )
+            Notification.objects.create(
+                user=user,
+                notification_type='member_joined',
+                title='Welcome to Splitly',
+                message='Your profile was created successfully. Create or join a group to start sharing expenses!'
+            )
             messages.success(request, "Account created successfully!")
             return redirect('splitly:dashboard')
     else:
@@ -53,6 +70,11 @@ def login_view(request):
         user = authenticate(request, username=email, password=password)
         if user is not None:
             login(request, user)
+            AuditLog.objects.create(
+                user=user, 
+                action='login', 
+                description=f"User {user.email} logged in successfully."
+            )
             messages.success(request, f"Welcome back, {user.first_name or user.email}!")
             return redirect('splitly:dashboard')
         else:
@@ -62,7 +84,13 @@ def login_view(request):
 
 @login_required
 def logout_view(request):
+    user = request.user
     logout(request)
+    AuditLog.objects.create(
+        user=user, 
+        action='login', 
+        description=f"User {user.email} logged out."
+    )
     messages.info(request, "Logged out successfully.")
     return redirect('splitly:landing')
 
@@ -85,19 +113,35 @@ def dashboard(request):
     user = request.user
     
     # Get all active memberships
-    active_memberships = GroupMembership.objects.filter(user=user, status='active', group__is_deleted=False)
+    active_memberships = Membership.objects.filter(user=user, status='active', group__is_deleted=False)
     groups = [m.group for m in active_memberships]
     
     # Calculate global You Owe / You Are Owed / Net Balance
-    total_owed = Decimal('0.00') # User owes others (negative balances)
-    total_is_owed = Decimal('0.00') # Others owe user (positive balances)
+    total_owed = Decimal('0.00')
+    total_is_owed = Decimal('0.00')
     
     group_balances = []
+    
+    # Count variables
+    total_groups_count = len(groups)
+    unique_members = set()
+    total_expenses_count = 0
+    total_settlements_count = 0
     
     for g in groups:
         cycle = g.current_cycle
         if not cycle:
             continue
+            
+        # Unique members count
+        for m in cycle.members.all():
+            unique_members.add(m.id)
+            
+        # Expenses count
+        total_expenses_count += cycle.expenses.filter(is_deleted=False).count()
+        # Settlements count
+        total_settlements_count += cycle.settlements.count()
+        
         _, cycle_balances = calculate_cycle_balances(cycle)
         user_bal = cycle_balances.get(user, Decimal('0.00'))
         
@@ -114,7 +158,7 @@ def dashboard(request):
             
     net_balance = total_is_owed - total_owed
     
-    # Get recent activity (recent expenses in the user's groups)
+    # Get recent activity
     user_cycles = ExpenseCycle.objects.filter(group__in=groups)
     recent_expenses = Expense.objects.filter(
         cycle__in=user_cycles, 
@@ -127,6 +171,13 @@ def dashboard(request):
         'total_owe': total_owed,
         'group_balances': group_balances,
         'recent_activity': recent_expenses,
+        
+        # New Phase 3 dashboard counters
+        'total_groups_count': total_groups_count,
+        'total_members_count': len(unique_members),
+        'total_expenses_count': total_expenses_count,
+        'total_settlements_count': total_settlements_count,
+        
         'current_page': 'dashboard'
     }
     return render(request, 'splitly/dashboard.html', context)
@@ -134,8 +185,8 @@ def dashboard(request):
 
 @login_required
 def group_list(request):
-    memberships = GroupMembership.objects.filter(user=request.user, status='active', group__is_deleted=False)
-    archived_memberships = GroupMembership.objects.filter(user=request.user, status='active', group__is_archived=True, group__is_deleted=False)
+    memberships = Membership.objects.filter(user=request.user, status='active', group__is_deleted=False)
+    archived_memberships = Membership.objects.filter(user=request.user, status='active', group__is_archived=True, group__is_deleted=False)
     
     context = {
         'groups': [m.group for m in memberships if not m.group.is_archived],
@@ -156,7 +207,7 @@ def group_create(request):
             group.save()
             
             # Create membership record for creator
-            GroupMembership.objects.create(
+            Membership.objects.create(
                 group=group,
                 user=request.user,
                 status='active'
@@ -172,6 +223,12 @@ def group_create(request):
                 user=request.user
             )
             
+            AuditLog.objects.create(
+                user=request.user,
+                action='member_joined',
+                description=f"Group '{group.name}' created, user joined as creator."
+            )
+            
             messages.success(request, f"Group '{group.name}' created successfully!")
             return redirect('splitly:group_detail', group_id=group.id)
     else:
@@ -184,14 +241,13 @@ def group_detail(request, group_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     
     # Check if user is member
-    membership = GroupMembership.objects.filter(group=group, user=request.user, status='active').first()
+    membership = Membership.objects.filter(group=group, user=request.user, status='active').first()
     if not membership:
         return HttpResponseForbidden("You are not a member of this group.")
         
     # Get active cycle
     cycle = group.current_cycle
     if not cycle:
-        # Auto-create if somehow missing
         cycle = ExpenseCycle.objects.create(group=group, status='active')
         for mem in group.get_active_members():
             ExpenseCycleMember.objects.create(cycle=cycle, user=mem)
@@ -248,7 +304,7 @@ def group_update(request, group_id):
 def group_add_member(request, group_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     # Check if user is member
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     if request.method == 'POST':
@@ -259,7 +315,7 @@ def group_add_member(request, group_id):
             return redirect('splitly:group_detail', group_id=group.id)
             
         # Check if already active member
-        exists = GroupMembership.objects.filter(group=group, user=new_user, status='active').exists()
+        exists = Membership.objects.filter(group=group, user=new_user, status='active').exists()
         if exists:
             messages.warning(request, f"'{new_user}' is already a member of this group.")
             return redirect('splitly:group_detail', group_id=group.id)
@@ -271,15 +327,15 @@ def group_add_member(request, group_id):
             current_cycle.end_date = timezone.now()
             current_cycle.save()
             
-        # Add membership history record (never delete historical ones)
-        membership = GroupMembership.objects.filter(group=group, user=new_user).first()
+        # Add membership history record
+        membership = Membership.objects.filter(group=group, user=new_user).first()
         if membership:
             membership.status = 'active'
             membership.join_date = timezone.now()
             membership.leave_date = None
             membership.save()
         else:
-            GroupMembership.objects.create(
+            Membership.objects.create(
                 group=group,
                 user=new_user,
                 status='active'
@@ -291,6 +347,28 @@ def group_add_member(request, group_id):
         for member in active_members:
             ExpenseCycleMember.objects.create(cycle=new_cycle, user=member)
             
+        # Audit & Notification log
+        AuditLog.objects.create(
+            user=request.user,
+            action='member_joined',
+            description=f"Member {new_user.email} added to group '{group.name}'."
+        )
+        for member in active_members:
+            if member == new_user:
+                Notification.objects.create(
+                    user=member,
+                    notification_type='member_joined',
+                    title='Joined Group',
+                    message=f"You have been added to the group '{group.name}' by {request.user.email}."
+                )
+            else:
+                Notification.objects.create(
+                    user=member,
+                    notification_type='member_joined',
+                    title='New Member Joined',
+                    message=f"{new_user.email} joined group '{group.name}'."
+                )
+            
         messages.success(request, f"Added {new_user.get_full_name() or new_user.email} to the group. A new expense cycle has started.")
         
     return redirect('splitly:group_detail', group_id=group.id)
@@ -301,13 +379,13 @@ def group_add_member(request, group_id):
 def group_remove_member(request, group_id, user_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     # Check if current user is member
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     member_to_remove = get_object_or_404(User, id=user_id)
     
     # Check if target user is in the group
-    membership = GroupMembership.objects.filter(group=group, user=member_to_remove, status='active').first()
+    membership = Membership.objects.filter(group=group, user=member_to_remove, status='active').first()
     if not membership:
         messages.error(request, "User is not an active member of this group.")
         return redirect('splitly:group_detail', group_id=group.id)
@@ -330,6 +408,26 @@ def group_remove_member(request, group_id, user_id):
         new_cycle = ExpenseCycle.objects.create(group=group, status='active')
         for member in active_members:
             ExpenseCycleMember.objects.create(cycle=new_cycle, user=member)
+            
+    # Audit & Notification log
+    AuditLog.objects.create(
+        user=request.user,
+        action='member_left',
+        description=f"Member {member_to_remove.email} left/removed from group '{group.name}'."
+    )
+    Notification.objects.create(
+        user=member_to_remove,
+        notification_type='member_left',
+        title='Removed from Group',
+        message=f"You have been removed from group '{group.name}' by {request.user.email}."
+    )
+    for member in active_members:
+        Notification.objects.create(
+            user=member,
+            notification_type='member_left',
+            title='Member Left Group',
+            message=f"{member_to_remove.email} left group '{group.name}'."
+        )
             
     messages.success(request, f"Removed {member_to_remove.get_full_name() or member_to_remove.email} from the group. A new expense cycle has started.")
     return redirect('splitly:group_detail', group_id=group.id)
@@ -364,7 +462,7 @@ def group_delete(request, group_id):
 def group_cycle_detail(request, group_id, cycle_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     # Check membership
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     cycle = get_object_or_404(ExpenseCycle, id=cycle_id, group=group)
@@ -392,7 +490,7 @@ def group_cycle_detail(request, group_id, cycle_id):
 @transaction.atomic
 def expense_create(request, group_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False, is_archived=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     cycle = group.current_cycle
@@ -419,16 +517,38 @@ def expense_create(request, group_id):
                 # Run split calculations and validation
                 splits, breakdown = calculate_splits(expense.amount, split_type, cycle_members, inputs)
                 expense.description = (expense.description or '') + f"\n\n--- Calculation Breakdown ---\n{breakdown}"
+                
+                # Fetch Currency Conversion rates
+                rate = get_rate(expense.currency)
+                expense.exchange_rate = rate
+                expense.converted_inr_value = convert_to_inr(expense.amount, expense.currency)
                 expense.save()
                 
                 # Save split records
                 for member, split_amount in splits.items():
-                    ExpenseSplit.objects.create(
+                    split_inr = convert_to_inr(split_amount, expense.currency)
+                    ExpenseParticipant.objects.create(
                         expense=expense,
                         user=member,
                         amount=split_amount,
+                        amount_inr=split_inr,
                         input_value=Decimal(str(inputs.get(member.id, 0)))
                     )
+                
+                # Audit log & notifications
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='expense_added',
+                    description=f"Expense '{expense.title}' of {expense.currency} {expense.amount} added in group '{group.name}'."
+                )
+                for member in cycle_members:
+                    if member != request.user:
+                        Notification.objects.create(
+                            user=member,
+                            notification_type='expense_added',
+                            title='New Expense Added',
+                            message=f"Expense '{expense.title}' of {expense.currency} {expense.amount} was added to '{group.name}' by {request.user.email}."
+                        )
                 
                 messages.success(request, f"Expense '{expense.title}' recorded successfully!")
                 return redirect('splitly:group_detail', group_id=group.id)
@@ -456,7 +576,7 @@ def expense_update(request, expense_id):
     group = cycle.group
     
     # Check membership
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     cycle_members = list(cycle.members.all())
@@ -485,17 +605,30 @@ def expense_update(request, expense_id):
                     cleaned_desc = cleaned_desc.split("--- Calculation Breakdown ---")[0].strip()
                     
                 updated_expense.description = cleaned_desc + f"\n\n--- Calculation Breakdown ---\n{breakdown}"
+                
+                # Recalculate converted value
+                rate = get_rate(updated_expense.currency)
+                updated_expense.exchange_rate = rate
+                updated_expense.converted_inr_value = convert_to_inr(updated_expense.amount, updated_expense.currency)
                 updated_expense.save()
                 
                 # Remove old splits and create new ones
                 expense.splits.all().delete()
                 for member, split_amount in splits.items():
-                    ExpenseSplit.objects.create(
+                    split_inr = convert_to_inr(split_amount, updated_expense.currency)
+                    ExpenseParticipant.objects.create(
                         expense=updated_expense,
                         user=member,
                         amount=split_amount,
+                        amount_inr=split_inr,
                         input_value=Decimal(str(inputs.get(member.id, 0)))
                     )
+                    
+                AuditLog.objects.create(
+                    user=request.user,
+                    action='expense_updated',
+                    description=f"Expense '{updated_expense.title}' updated in group '{group.name}'."
+                )
                     
                 messages.success(request, "Expense updated successfully!")
                 return redirect('splitly:group_detail', group_id=group.id)
@@ -523,11 +656,18 @@ def expense_delete(request, expense_id):
     group = expense.cycle.group
     
     # Check membership
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     expense.is_deleted = True
     expense.save()
+    
+    AuditLog.objects.create(
+        user=request.user,
+        action='expense_deleted',
+        description=f"Expense '{expense.title}' deleted from group '{group.name}'."
+    )
+    
     messages.success(request, f"Expense '{expense.title}' has been deleted.")
     return redirect('splitly:group_detail', group_id=group.id)
 
@@ -537,7 +677,7 @@ def expense_detail(request, expense_id):
     expense = get_object_or_404(Expense, id=expense_id, is_deleted=False)
     group = expense.cycle.group
     
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     splits = expense.splits.all()
@@ -553,7 +693,7 @@ def expense_detail(request, expense_id):
 
 @login_required
 def expense_list(request):
-    memberships = GroupMembership.objects.filter(user=request.user, status='active', group__is_deleted=False)
+    memberships = Membership.objects.filter(user=request.user, status='active', group__is_deleted=False)
     groups = [m.group for m in memberships]
     cycles = ExpenseCycle.objects.filter(group__in=groups)
     
@@ -585,10 +725,9 @@ def expense_list(request):
 @login_required
 def export_group_csv(request, group_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
-    # Export all expenses of all cycles for this group
     cycles = group.cycles.all()
     expenses = Expense.objects.filter(cycle__in=cycles, is_deleted=False)
     return generate_expenses_csv(expenses)
@@ -597,7 +736,7 @@ def export_group_csv(request, group_id):
 @login_required
 def download_group_pdf(request, group_id, cycle_id=None):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     if cycle_id:
@@ -611,15 +750,144 @@ def download_group_pdf(request, group_id, cycle_id=None):
         
     _, cycle_balances = calculate_cycle_balances(cycle)
     transactions = simplify_debts(cycle_balances)
-    return generate_group_pdf_report(group, cycle, cycle_balances, transactions)
+    import_sessions = CSVImport.objects.filter(group=group)
+    expenses = cycle.expenses.filter(is_deleted=False)
+    settlements_list = cycle.settlements.all()
+    
+    # Generate PDF Content
+    pdf_data = generate_group_pdf_report(
+        group, cycle, cycle_balances, transactions, 
+        import_sessions, expenses, settlements_list
+    )
+    
+    # Save PDF report record to DB
+    filename = f"group_report_{group.id}_{cycle.id}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
+    report_obj = PDFReport.objects.create(
+        report_type='group',
+        group=group,
+        cycle=cycle,
+        generated_by=request.user,
+    )
+    report_obj.file.save(filename, ContentFile(pdf_data))
+    report_obj.save()
+    
+    # Log Audit
+    AuditLog.objects.create(
+        user=request.user,
+        action='pdf_generated',
+        description=f"Group PDF report generated for group '{group.name}', cycle #{cycle.id}."
+    )
+    
+    # Notify
+    Notification.objects.create(
+        user=request.user,
+        notification_type='report_generated',
+        title='Group PDF Generated',
+        message=f"Group PDF report for '{group.name}' has been generated and saved."
+    )
+    
+    # Return as FileResponse
+    buffer = io.BytesIO(pdf_data)
+    return FileResponse(buffer, as_attachment=True, filename=filename)
+
+
+@login_required
+def download_individual_pdf(request):
+    user = request.user
+    
+    # Memberships
+    memberships = Membership.objects.filter(user=user)
+    groups = [m.group for m in memberships if not m.group.is_deleted]
+    
+    # Expense splits involved in
+    expenses_involved = ExpenseParticipant.objects.filter(user=user, expense__is_deleted=False)
+    
+    # Payments made by user
+    payments = Expense.objects.filter(paid_by=user, is_deleted=False)
+    
+    # Settlements user is involved in
+    settlements = Settlement.objects.filter(
+        models.Q(payer=user) | models.Q(receiver=user)
+    ).order_by('-date')
+    
+    # Categories spend aggregation (in INR)
+    categories_summary = {}
+    total_shared_inr = Decimal('0.00')
+    total_paid_inr = Decimal('0.00')
+    settlements_sent_inr = Decimal('0.00')
+    settlements_received_inr = Decimal('0.00')
+    
+    for split in expenses_involved:
+        total_shared_inr += split.amount_inr
+        categories_summary[split.expense.category] = categories_summary.get(split.expense.category, Decimal('0.00')) + split.amount_inr
+        
+    for pay in payments:
+        total_paid_inr += pay.converted_inr_value
+        
+    for s in settlements:
+        if s.payer == user:
+            settlements_sent_inr += s.converted_inr_value
+        else:
+            settlements_received_inr += s.converted_inr_value
+            
+    # Calculate percentage
+    cat_summary_dict = {}
+    if total_shared_inr > 0:
+        for cat, val in categories_summary.items():
+            cat_summary_dict[cat] = {
+                'amount': val,
+                'percentage': (val / total_shared_inr) * 100
+            }
+            
+    net_balance = total_paid_inr - total_shared_inr + settlements_sent_inr - settlements_received_inr
+    
+    overall_stats = {
+        'total_paid': total_paid_inr,
+        'total_shared': total_shared_inr,
+        'settlements_sent': settlements_sent_inr,
+        'settlements_received': settlements_received_inr,
+        'net_balance': net_balance
+    }
+    
+    # Generate PDF Content
+    pdf_data = generate_individual_pdf_report(
+        user, memberships, expenses_involved, 
+        payments, settlements, cat_summary_dict, overall_stats
+    )
+    
+    # Save PDF report record to DB
+    filename = f"individual_report_{user.id}_{timezone.now().strftime('%Y%m%d%H%M%S')}.pdf"
+    report_obj = PDFReport.objects.create(
+        report_type='individual',
+        user=user,
+        generated_by=request.user,
+    )
+    report_obj.file.save(filename, ContentFile(pdf_data))
+    report_obj.save()
+    
+    # Log Audit
+    AuditLog.objects.create(
+        user=request.user,
+        action='pdf_generated',
+        description=f"Individual PDF report generated for {user.email}."
+    )
+    
+    # Notify
+    Notification.objects.create(
+        user=request.user,
+        notification_type='report_generated',
+        title='Individual PDF Generated',
+        message="Your individual PDF report has been generated and saved."
+    )
+    
+    # Return as FileResponse
+    buffer = io.BytesIO(pdf_data)
+    return FileResponse(buffer, as_attachment=True, filename=filename)
 
 
 @login_required
 def balances_view(request):
-    """
-    Displays settlements and balances overview across all user groups.
-    """
-    memberships = GroupMembership.objects.filter(user=request.user, status='active', group__is_deleted=False)
+    memberships = Membership.objects.filter(user=request.user, status='active', group__is_deleted=False)
     groups = [m.group for m in memberships]
     
     all_debts = []
@@ -651,19 +919,13 @@ def balances_view(request):
 @login_required
 @transaction.atomic
 def settle_debt(request, group_id, to_user_id):
-    """
-    Records a settlement payment of a specific amount from the current user 
-    to another user within the group cycle.
-    This creates an expense with Paid By = Current User, split unequally 
-    where the target user owes 100% of the amount.
-    """
     group = get_object_or_404(Group, id=group_id, is_deleted=False, is_archived=False)
     cycle = group.current_cycle
     if not cycle:
         return redirect('splitly:group_detail', group_id=group.id)
         
     # Check if both are members of the cycle
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden("Access denied.")
         
     to_user = get_object_or_404(User, id=to_user_id)
@@ -685,6 +947,8 @@ def settle_debt(request, group_id, to_user_id):
             title=title,
             amount=amount,
             currency=request.user.preferred_currency,
+            exchange_rate=get_rate(request.user.preferred_currency),
+            converted_inr_value=convert_to_inr(amount, request.user.preferred_currency),
             date=timezone.now().date(),
             category='Other',
             paid_by=request.user,
@@ -694,39 +958,66 @@ def settle_debt(request, group_id, to_user_id):
         )
         
         # Target user owes the whole amount
-        ExpenseSplit.objects.create(
+        ExpenseParticipant.objects.create(
             expense=expense,
             user=to_user,
             amount=amount,
+            amount_inr=convert_to_inr(amount, expense.currency),
             input_value=amount
         )
         
         # Payer owes 0.00
-        ExpenseSplit.objects.create(
+        ExpenseParticipant.objects.create(
             expense=expense,
             user=request.user,
             amount=Decimal('0.00'),
+            amount_inr=Decimal('0.00'),
             input_value=Decimal('0.00')
         )
         
-        # Zero out other members in cycle splits (they don't participate)
+        # Zero out other members in cycle splits
         for member in cycle.members.all():
             if member != request.user and member != to_user:
-                ExpenseSplit.objects.create(
+                ExpenseParticipant.objects.create(
                     expense=expense,
                     user=member,
                     amount=Decimal('0.00'),
+                    amount_inr=Decimal('0.00'),
                     input_value=Decimal('0.00')
                 )
+                
+        # Also create a core Settlement record
+        s = Settlement.objects.create(
+            group=group,
+            cycle=cycle,
+            payer=request.user,
+            receiver=to_user,
+            amount=amount,
+            currency=request.user.preferred_currency,
+            exchange_rate=expense.exchange_rate,
+            converted_inr_value=expense.converted_inr_value,
+            date=timezone.now().date(),
+            description=f"Debt settlement: {request.user.email} paid {to_user.email}",
+            created_by=request.user
+        )
+        
+        # Create logs and notifications
+        AuditLog.objects.create(
+            user=request.user,
+            action='settlement_added',
+            description=f"Settlement: {request.user.email} paid {to_user.email} {s.currency} {s.amount}."
+        )
+        Notification.objects.create(
+            user=to_user,
+            notification_type='settlement_completed',
+            title='Settlement Received',
+            message=f"{request.user.email} paid you {s.currency} {s.amount} in group '{group.name}'."
+        )
                 
         messages.success(request, f"Settlement of {amount} to {to_user.get_full_name() or to_user.email} recorded!")
         
     return redirect('splitly:group_detail', group_id=group.id)
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# PHASE 2 VIEWS
-# ─────────────────────────────────────────────────────────────────────────────
 
 # ── CSV Import ─────────────────────────────────────────────────────────────────
 
@@ -734,7 +1025,7 @@ def settle_debt(request, group_id, to_user_id):
 def csv_import_upload(request, group_id):
     """Step 1: Upload a CSV file for a group."""
     group = get_object_or_404(Group, id=group_id, is_deleted=False, is_archived=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     if request.method == 'POST':
@@ -783,7 +1074,7 @@ def csv_import_review(request, group_id, session_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     session = get_object_or_404(CSVImport, id=session_id, group=group)
 
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     if session.status == 'completed':
@@ -811,7 +1102,7 @@ def csv_import_decide(request, group_id, session_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     session = get_object_or_404(CSVImport, id=session_id, group=group)
 
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return JsonResponse({'error': 'Access denied'}, status=403)
 
     row_id = request.POST.get('row_id')
@@ -822,13 +1113,13 @@ def csv_import_decide(request, group_id, session_id):
         return JsonResponse({'error': 'Invalid decision'}, status=400)
 
     try:
-        row = CSVImportRow.objects.get(id=row_id, import_session=session)
+        row = ImportLog.objects.get(id=row_id, import_session=session)
         row.user_decision = decision
         row.decision_note = note
         row.save()
         pending = session.rows.filter(status='anomaly', user_decision='pending').count()
         return JsonResponse({'ok': True, 'pending': pending})
-    except CSVImportRow.DoesNotExist:
+    except ImportLog.DoesNotExist:
         return JsonResponse({'error': 'Row not found'}, status=404)
 
 
@@ -839,7 +1130,7 @@ def csv_import_execute(request, group_id, session_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     session = get_object_or_404(CSVImport, id=session_id, group=group)
 
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     if session.status == 'completed':
@@ -854,6 +1145,23 @@ def csv_import_execute(request, group_id, session_id):
 
     try:
         summary = execute_import(session, request.user)
+        
+        # Log Audit & Notifications
+        AuditLog.objects.create(
+            user=request.user,
+            action='csv_imported',
+            description=f"CSV file '{session.file_name}' imported to group '{group.name}': {summary['imported']} items imported."
+        )
+        active_members = group.get_active_members()
+        for member in active_members:
+            if member != request.user:
+                Notification.objects.create(
+                    user=member,
+                    notification_type='csv_imported',
+                    title='CSV Import Completed',
+                    message=f"A CSV expense sheet '{session.file_name}' was successfully imported into group '{group.name}'."
+                )
+        
         messages.success(
             request,
             f"Import complete! {summary['imported']} expense(s) and "
@@ -873,7 +1181,7 @@ def csv_import_report(request, group_id, session_id):
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
     session = get_object_or_404(CSVImport, id=session_id, group=group)
 
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     report = build_report(session)
@@ -891,7 +1199,7 @@ def csv_import_report(request, group_id, session_id):
 def settlement_create(request, group_id):
     """Record a manual settlement payment between two group members."""
     group = get_object_or_404(Group, id=group_id, is_deleted=False, is_archived=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     cycle = group.current_cycle
@@ -912,6 +1220,20 @@ def settlement_create(request, group_id):
             s.exchange_rate = get_rate(s.currency)
             s.converted_inr_value = convert_to_inr(s.amount, s.currency)
             s.save()
+            
+            # Log Audit & Notifications
+            AuditLog.objects.create(
+                user=request.user,
+                action='settlement_added',
+                description=f"Settlement: {s.payer.email} paid {s.receiver.email} {s.currency} {s.amount} in '{group.name}'."
+            )
+            Notification.objects.create(
+                user=s.receiver,
+                notification_type='settlement_completed',
+                title='Settlement Received',
+                message=f"{s.payer.get_full_name() or s.payer.email} paid you {s.currency} {s.amount} in group '{group.name}'."
+            )
+            
             messages.success(
                 request,
                 f"Settlement recorded: {s.payer.get_full_name() or s.payer.email} → "
@@ -939,7 +1261,7 @@ def settlement_create(request, group_id):
 def settlement_list(request, group_id):
     """List all settlements in a group, newest first."""
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     settlements = Settlement.objects.filter(group=group).order_by('-date', '-created_at')
@@ -961,7 +1283,7 @@ def settlement_list(request, group_id):
 def balance_detail(request, group_id):
     """Full balance transparency view with per-member paid/shared/pending breakdown."""
     group = get_object_or_404(Group, id=group_id, is_deleted=False)
-    if not GroupMembership.objects.filter(group=group, user=request.user, status='active').exists():
+    if not Membership.objects.filter(group=group, user=request.user, status='active').exists():
         return HttpResponseForbidden('Access denied.')
 
     cycle = group.current_cycle
@@ -990,9 +1312,8 @@ def balance_detail(request, group_id):
 @login_required
 def exchange_rates(request):
     """View and update exchange rates (all logged-in users can view; update requires staff)."""
-    # Ensure defaults are seeded
     seed_default_rates(user=None)
-    rates = ExchangeRate.objects.all().order_by('currency')
+    rates = Currency.objects.all().order_by('currency')
     all_rates = get_all_rates()
 
     if request.method == 'POST' and request.user.is_staff:
@@ -1000,7 +1321,7 @@ def exchange_rates(request):
         new_rate = request.POST.get('rate_to_inr', '')
         try:
             from decimal import Decimal as D
-            rate_obj, _ = ExchangeRate.objects.get_or_create(
+            rate_obj, _ = Currency.objects.get_or_create(
                 currency=currency,
                 defaults={'rate_to_inr': D(new_rate)}
             )
@@ -1018,3 +1339,206 @@ def exchange_rates(request):
         'is_staff': request.user.is_staff,
         'current_page': 'settings',
     })
+
+
+# ─── PHASE 3 NEW VIEWS ─────────────────────────────────────────────────────────
+
+@login_required
+def analytics_view(request):
+    """Backend processor for user spend analytics, category, member share charts."""
+    user = request.user
+    memberships = Membership.objects.filter(user=user, status='active', group__is_deleted=False)
+    groups = [m.group for m in memberships]
+    
+    # Non-deleted expenses involving or paid in the groups
+    cycles = ExpenseCycle.objects.filter(group__in=groups)
+    expenses = Expense.objects.filter(cycle__in=cycles, is_deleted=False)
+    
+    from collections import defaultdict
+    monthly_data = defaultdict(Decimal)
+    category_data = defaultdict(Decimal)
+    member_data = defaultdict(Decimal)
+    currency_data = defaultdict(Decimal)
+    
+    for exp in expenses:
+        inr_val = exp.converted_inr_value
+        
+        # Monthly aggregate
+        month_str = exp.date.strftime('%Y-%m')
+        monthly_data[month_str] += inr_val
+        
+        # Category aggregate
+        category_data[exp.category] += inr_val
+        
+        # Currency count
+        currency_data[exp.currency] += Decimal('1')
+        
+        # Total member contribution
+        member_data[exp.paid_by.get_full_name() or exp.paid_by.email] += inr_val
+        
+    # Sort monthly spent
+    sorted_months = sorted(monthly_data.keys())
+    monthly_labels = [datetime.strptime(m, '%Y-%m').strftime('%b %Y') for m in sorted_months]
+    monthly_values = [float(monthly_data[m]) for m in sorted_months]
+    
+    cat_labels = list(category_data.keys())
+    cat_values = [float(category_data[k]) for k in cat_labels]
+    
+    curr_labels = list(currency_data.keys())
+    curr_values = [float(currency_data[k]) for k in curr_labels]
+    
+    sorted_members = sorted(member_data.items(), key=lambda x: x[1], reverse=True)[:10]
+    member_labels = [item[0] for item in sorted_members]
+    member_values = [float(item[1]) for item in sorted_members]
+    
+    context = {
+        'monthly_labels': json.dumps(monthly_labels),
+        'monthly_values': json.dumps(monthly_values),
+        'cat_labels': json.dumps(cat_labels),
+        'cat_values': json.dumps(cat_values),
+        'curr_labels': json.dumps(curr_labels),
+        'curr_values': json.dumps(curr_values),
+        'member_labels': json.dumps(member_labels),
+        'member_values': json.dumps(member_values),
+        'trend_labels': json.dumps(monthly_labels),
+        'trend_values': json.dumps(monthly_values),
+        'current_page': 'analytics',
+    }
+    return render(request, 'splitly/analytics.html', context)
+
+
+@login_required
+def notifications_view(request):
+    """View and clear user-specific notifications."""
+    notifications = request.user.notifications.all().order_by('-created_at')
+    context = {
+        'notifications': notifications,
+        'current_page': 'notifications'
+    }
+    return render(request, 'splitly/notifications_list.html', context)
+
+
+@login_required
+@require_POST
+def mark_notification_read(request, notif_id):
+    notif = get_object_or_404(Notification, id=notif_id, user=request.user)
+    notif.is_read = True
+    notif.save()
+    return JsonResponse({'ok': True})
+
+
+@login_required
+@require_POST
+def mark_all_notifications_read(request):
+    request.user.notifications.filter(is_read=False).update(is_read=True)
+    messages.success(request, "All notifications marked as read.")
+    return redirect('splitly:notifications_view')
+
+
+@login_required
+@require_POST
+def clear_all_notifications(request):
+    request.user.notifications.all().delete()
+    messages.success(request, "Notifications history cleared.")
+    return redirect('splitly:notifications_view')
+
+
+@login_required
+@staff_member_required
+def admin_dashboard_view(request):
+    """Custom staff-only admin dashboard."""
+    users = User.objects.all().order_by('id')
+    groups = Group.objects.all().order_by('id')
+    expenses = Expense.objects.all().order_by('-date', '-created_at')
+    settlements = Settlement.objects.all().order_by('-date', '-created_at')
+    csv_imports = CSVImport.objects.all().order_by('-uploaded_at')
+    reports = PDFReport.objects.all().order_by('-generated_at')
+    audit_logs = AuditLog.objects.all().order_by('-timestamp')
+    
+    q = request.GET.get('q', '').strip()
+    if q:
+        audit_logs = audit_logs.filter(
+            models.Q(description__icontains=q) | 
+            models.Q(action__icontains=q) |
+            models.Q(user__email__icontains=q)
+        )
+        
+    context = {
+        'users': users,
+        'groups': groups,
+        'expenses': expenses,
+        'settlements': settlements,
+        'csv_imports': csv_imports,
+        'reports': reports,
+        'audit_logs': audit_logs,
+        'q': q,
+        'current_page': 'admin',
+    }
+    return render(request, 'splitly/admin_dashboard.html', context)
+
+
+@login_required
+@staff_member_required
+@require_POST
+def admin_toggle_user_status(request, user_id):
+    target_user = get_object_or_404(User, id=user_id)
+    if target_user == request.user:
+        messages.error(request, "You cannot deactivate your own account.")
+        return redirect('splitly:admin_dashboard')
+    target_user.is_active = not target_user.is_active
+    target_user.save()
+    messages.success(request, f"User '{target_user.email}' active status toggled.")
+    return redirect('splitly:admin_dashboard')
+
+
+@login_required
+@staff_member_required
+@require_POST
+def admin_toggle_group_archive(request, group_id):
+    group = get_object_or_404(Group, id=group_id)
+    group.is_archived = not group.is_archived
+    group.save()
+    messages.success(request, f"Group '{group.name}' archived status toggled.")
+    return redirect('splitly:admin_dashboard')
+
+
+@login_required
+@staff_member_required
+@require_POST
+def admin_toggle_group_delete(request, group_id):
+    group = get_object_or_404(Group, id=group_id)
+    group.is_deleted = not group.is_deleted
+    group.save()
+    messages.success(request, f"Group '{group.name}' deletion status toggled.")
+    return redirect('splitly:admin_dashboard')
+
+
+@login_required
+@staff_member_required
+@require_POST
+def admin_toggle_expense_delete(request, expense_id):
+    expense = get_object_or_404(Expense, id=expense_id)
+    expense.is_deleted = not expense.is_deleted
+    expense.save()
+    messages.success(request, f"Expense '{expense.title}' deletion status toggled.")
+    return redirect('splitly:admin_dashboard')
+
+
+@login_required
+@staff_member_required
+@require_POST
+def admin_delete_settlement(request, settlement_id):
+    settlement = get_object_or_404(Settlement, id=settlement_id)
+    # Revert related Settlement expense if any
+    try:
+        title = f"Settlement: {settlement.payer.first_name or settlement.payer.email} paid {settlement.receiver.first_name or settlement.receiver.email}"
+        exp = Expense.objects.filter(cycle=settlement.cycle, title=title, amount=settlement.amount, is_deleted=False).first()
+        if exp:
+            exp.is_deleted = True
+            exp.save()
+    except Exception:
+        pass
+    
+    settlement.delete()
+    messages.success(request, "Settlement record deleted and reverted successfully.")
+    return redirect('splitly:admin_dashboard')
