@@ -23,11 +23,12 @@
 
 <!-- Stats Section -->
 <div class="row g-4 mb-4">
-    <div class="col-md-4">
+    <!-- Pending Balance -->
+    <div class="col-lg-4 col-md-6">
         <div class="stat-card">
-            <span class="stat-label">Net balance</span>
-            <p class="stat-value {% if net_balance > 0 %}positive{% else %}negative{% endif %}">
-                {% if net_balance > 0 %}+{% endif %}${{ net_balance|floatformat:2 }}
+            <span class="stat-label">Pending balance</span>
+            <p class="stat-value {% if net_balance > 0 %}positive{% elif net_balance < 0 %}negative{% endif %}">
+                {% if net_balance > 0 %}+{% endif %}₹{{ net_balance|floatformat:2 }}
             </p>
             <div class="stat-icon net">
                 <i class="bi bi-wallet2"></i>
@@ -35,22 +36,46 @@
         </div>
     </div>
     
-    <div class="col-md-4">
+    <!-- Total Groups -->
+    <div class="col-lg-2 col-md-6">
         <div class="stat-card">
-            <span class="stat-label">You are owed</span>
-            <p class="stat-value positive">${{{ total_is_owed|floatformat:2 }}</p>
+            <span class="stat-label">Total groups</span>
+            <p class="stat-value text-dark">{{ total_groups_count }}</p>
             <div class="stat-icon owed">
-                <i class="bi bi-arrow-down-left"></i>
+                <i class="bi bi-people"></i>
             </div>
         </div>
     </div>
     
-    <div class="col-md-4">
+    <!-- Members -->
+    <div class="col-lg-2 col-md-6">
         <div class="stat-card">
-            <span class="stat-label">You owe</span>
-            <p class="stat-value text-dark">${{ total_owe|floatformat:2 }}</p>
+            <span class="stat-label">Members</span>
+            <p class="stat-value text-dark">{{ total_members_count }}</p>
+            <div class="stat-icon net">
+                <i class="bi bi-person"></i>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Expenses -->
+    <div class="col-lg-2 col-md-6">
+        <div class="stat-card">
+            <span class="stat-label">Expenses</span>
+            <p class="stat-value text-dark">{{ total_expenses_count }}</p>
             <div class="stat-icon owe">
-                <i class="bi bi-arrow-up-right"></i>
+                <i class="bi bi-receipt"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settlements -->
+    <div class="col-lg-2 col-md-6">
+        <div class="stat-card">
+            <span class="stat-label">Settlements</span>
+            <p class="stat-value text-dark">{{ total_settlements_count }}</p>
+            <div class="stat-icon net">
+                <i class="bi bi-check-circle"></i>
             </div>
         </div>
     </div>

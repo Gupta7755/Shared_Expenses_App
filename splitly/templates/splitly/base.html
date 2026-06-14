@@ -50,11 +50,36 @@
                     </a>
                 </li>
                 <li>
+                    <a href="{% url 'splitly:analytics_view' %}" class="menu-item-link {% if current_page == 'analytics' %}active{% endif %}">
+                        <i class="bi bi-bar-chart-fill"></i>
+                        <span>Analytics</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{% url 'splitly:notifications_view' %}" class="menu-item-link {% if current_page == 'notifications' %}active{% endif %} d-flex align-items-center justify-content-between">
+                        <div class="d-flex align-items-center gap-2">
+                            <i class="bi bi-bell-fill"></i>
+                            <span>Notifications</span>
+                        </div>
+                        {% if unread_notifications_count > 0 %}
+                            <span class="badge bg-danger rounded-pill notification-badge" style="font-size: 11px; padding: 4px 8px;">{{ unread_notifications_count }}</span>
+                        {% endif %}
+                    </a>
+                </li>
+                <li>
                     <a href="{% url 'splitly:profile' %}" class="menu-item-link {% if current_page == 'profile' %}active{% endif %}">
                         <i class="bi bi-person-fill"></i>
                         <span>Profile</span>
                     </a>
                 </li>
+                {% if user.is_staff %}
+                <li>
+                    <a href="{% url 'splitly:admin_dashboard' %}" class="menu-item-link {% if current_page == 'admin' %}active{% endif %}">
+                        <i class="bi bi-shield-lock-fill text-danger"></i>
+                        <span>Admin Panel</span>
+                    </a>
+                </li>
+                {% endif %}
             </ul>
             
             <!-- Sidebar Footer User Profile -->
